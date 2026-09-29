@@ -1,0 +1,36 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+model Profile {
+  id        Int        @id @default(autoincrement())
+  name      String
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  schedules Schedule[]
+}
+
+model Schedule {
+  id        Int      @id @default(autoincrement())
+  profileId Int
+  time      String
+  dayOfWeek Int
+  enabled   Boolean  @default(true)
+  soundId   Int?
+
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  sound     Sound?   @relation(fields: [soundId], references: [id], onDelete: SetNull)
+}
+
+model Sound {
+  id        Int        @id @default(autoincrement())
+  name      String
+  fileName  String
+  createdAt DateTime   @default(now())
+
+  schedules Schedule[]
+}
