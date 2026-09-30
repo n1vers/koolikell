@@ -1,5 +1,7 @@
 import express from "express";
 import cors from "cors";
+import path from "path";
+
 import { getNextSchedule } from "./services/schedulerService";
 import {
     getProfiles,
@@ -26,6 +28,12 @@ import { uploadSound } from "./middleware/uploadMiddleware";
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(
+    "/sounds",
+    express.static(
+        path.join(process.cwd(), "sounds")
+    )
+);
 const PORT = 3000;
 
 app.use(express.json());
