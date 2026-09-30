@@ -1,0 +1,20 @@
+{
+    
+    "scripts": {
+    "client": "npm --prefix client run dev",
+
+    "server:build": "npm --prefix server run build",
+
+    "electron:build": "tsc -p tsconfig.electron.json",
+
+    "electron": "npm run server:build && concurrently -k \"npm run client\" \"npm run electron:build && electron dist-electron/main.js\""
+},
+
+    "devDependencies": {
+        "concurrently": "^9.2.1",
+        "electron": "^44.5.1",
+        "electron-builder": "^26.15.3",
+        "tsx": "^4.23.15",
+        "typescript": "^7.0.2"
+    }
+}

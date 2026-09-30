@@ -53,6 +53,23 @@ export async function createProfile(
     return response.json();
 }
 
+export async function deleteProfile(
+    id: number
+): Promise<void> {
+    const response = await fetch(
+        `${API_URL}/api/profiles/${id}`,
+        {
+            method: "DELETE",
+        }
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            "Failed to delete profile"
+        );
+    }
+}
+
 export async function createSchedule(
     profileId: number,
     dayOfWeek: number,
