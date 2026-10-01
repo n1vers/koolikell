@@ -5,14 +5,32 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
 const child_process_1 = require("child_process");
 let mainWindow = null;
+let tray = null;
+let isQuitting = false;
 let serverProcess = null;
+function getWindowsSettingsPath() {
+    return path_1.default.join(electron_1.app.getPath("userData"), "windows-settings.json");
+}
+function readHiddenSetting() {
+    try {
+        const contents = fs_1.default.readFileSync(getWindowsSettingsPath(), "utf8");
+        return JSON.parse(contents).openAsHidden ?? false;
+    }
+    catch {
+        return false;
+    }
+}
 // ========================================
 // PATHS
 // ========================================
-const projectRoot = path_1.default.resolve(__dirname, "..");
+const projectRoot = electron_1.app.isPackaged
+    ? process.resourcesPath
+    : path_1.default.resolve(__dirname, "..");
 const serverPath = path_1.default.join(projectRoot, "server", "dist", "server.js");
+const clientDistPath = path_1.default.join(projectRoot, "client", "dist");
 // ========================================
 // WAIT FOR SERVER
 // ========================================
@@ -39,6 +57,7 @@ async function waitForServer(url, timeout = 15000) {
 // ========================================
 function startServer() {
     return new Promise((resolve, reject) => {
+        let serverReady = false;
         console.log("Starting SchoolBell server...");
         console.log("Server:", serverPath);
         const nodePath = "C:\\Program Files\\nodejs\\node.exe";
@@ -68,18 +87,24 @@ function startServer() {
         serverProcess.on("exit", (code, signal) => {
             console.log(`Server stopped. Code: ${code}, Signal: ${signal}`);
             serverProcess = null;
+            if (!serverReady) {
+                reject(new Error("SchoolBell server exited before becoming ready."));
+            }
             if (code !== 0) {
                 console.error("SchoolBell server exited unexpectedly.");
             }
         });
-        waitForServer("http://localhost:3000/")
-            .then(() => {
-            resolve();
-        })
-            .catch((error) => {
-            console.error("Server startup timeout:", error);
-            reject(error);
-        });
+        setTimeout(() => {
+            waitForServer("http://localhost:3000/")
+                .then(() => {
+                serverReady = true;
+                resolve();
+            })
+                .catch((error) => {
+                console.error("Server startup timeout:", error);
+                reject(error);
+            });
+        }, 500);
     });
 }
 // ========================================
@@ -93,26 +118,84 @@ function stopServer() {
     serverProcess.kill();
     serverProcess = null;
 }
+electron_1.ipcMain.handle("windows-settings:get", () => {
+    const settings = electron_1.app.getLoginItemSettings();
+    return {
+        openAtLogin: settings.openAtLogin,
+        openAsHidden: readHiddenSetting(),
+    };
+});
+electron_1.ipcMain.handle("windows-settings:set", (_event, settings) => {
+    electron_1.app.setLoginItemSettings({
+        openAtLogin: settings.openAtLogin,
+        args: settings.openAsHidden
+            ? ["--hidden"]
+            : [],
+    });
+    fs_1.default.writeFileSync(getWindowsSettingsPath(), JSON.stringify(settings), "utf8");
+    return settings;
+});
 // ========================================
 // CREATE WINDOW
 // ========================================
 function createWindow() {
+    const startHidden = process.argv.includes("--hidden");
     mainWindow =
         new electron_1.BrowserWindow({
             width: 1440,
             height: 900,
             minWidth: 1200,
             minHeight: 700,
+            show: !startHidden,
             webPreferences: {
                 preload: path_1.default.join(__dirname, "preload.js"),
                 contextIsolation: true,
                 nodeIntegration: false,
             },
         });
-    mainWindow.loadURL("http://localhost:5173");
+    if (electron_1.app.isPackaged) {
+        void mainWindow.loadFile(path_1.default.join(clientDistPath, "index.html"));
+    }
+    else {
+        void mainWindow.loadURL("http://localhost:5173");
+    }
+    mainWindow.once("ready-to-show", () => {
+        if (!startHidden) {
+            mainWindow?.show();
+        }
+    });
     mainWindow.on("closed", () => {
         mainWindow = null;
     });
+    mainWindow.on("close", (event) => {
+        if (isQuitting) {
+            return;
+        }
+        event.preventDefault();
+        mainWindow?.hide();
+    });
+}
+function createTray() {
+    if (tray) {
+        return;
+    }
+    const icon = electron_1.nativeImage.createFromPath(path_1.default.join(projectRoot, "client", "public", "favicon.svg"));
+    tray = new electron_1.Tray(icon);
+    tray.setToolTip("SchoolBell");
+    tray.setContextMenu(electron_1.Menu.buildFromTemplate([
+        {
+            label: "Ava SchoolBell",
+            click: () => mainWindow?.show(),
+        },
+        {
+            label: "Välju",
+            click: () => {
+                isQuitting = true;
+                electron_1.app.quit();
+            },
+        },
+    ]));
+    tray.on("double-click", () => mainWindow?.show());
 }
 // ========================================
 // APP READY
@@ -122,6 +205,7 @@ electron_1.app.whenReady().then(async () => {
         await startServer();
         console.log("Backend is ready.");
         createWindow();
+        createTray();
     }
     catch (error) {
         console.error("Failed to initialize SchoolBell:", error);
@@ -149,5 +233,6 @@ electron_1.app.on("window-all-closed", () => {
 // BEFORE QUIT
 // ========================================
 electron_1.app.on("before-quit", () => {
+    isQuitting = true;
     stopServer();
 });

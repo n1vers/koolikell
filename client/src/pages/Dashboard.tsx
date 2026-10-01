@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { Schedule } from "../types";
 
 interface DashboardProps {
@@ -5,38 +6,20 @@ interface DashboardProps {
 
     nextSchedule?: Schedule | null;
 
-    onRingNow: () => void;
+    automaticEnabled: boolean;
+
+    onToggleAutomatic: () => void;
 
     onEditSchedule: (schedule: Schedule) => void;
 }
 
-function getEndTime(time: string): string {
-    const [hours, minutes] = time
-        .split(":")
-        .map(Number);
-
-    const totalMinutes =
-        hours * 60 + minutes + 45;
-
-    const endHours =
-        Math.floor(totalMinutes / 60) % 24;
-
-    const endMinutes =
-        totalMinutes % 60;
-
-    return `${String(endHours).padStart(2, "0")}:${String(
-        endMinutes
-    ).padStart(2, "0")}`;
-}
-
 function getTimeUntilNextBell(
-    time?: string
+    time: string | undefined,
+    now: Date
 ): string {
     if (!time) {
         return "—";
     }
-
-    const now = new Date();
 
     const [hours, minutes] = time
         .split(":")
@@ -52,7 +35,7 @@ function getTimeUntilNextBell(
     );
 
     if (next.getTime() < now.getTime()) {
-        return "сегодня позже";
+        return "hiljem täna";
     }
 
     const difference =
@@ -63,20 +46,69 @@ function getTimeUntilNextBell(
     );
 
     if (minutesLeft < 1) {
-        return "через несколько секунд";
+        return "mõne sekundi pärast";
     }
 
-    return `через ${minutesLeft} минут`;
+    return `${minutesLeft} min pärast`;
+}
+
+function getNextSchedule(
+    schedules: Schedule[],
+    now: Date
+) {
+    const currentMinutes =
+        now.getHours() * 60 + now.getMinutes();
+
+    return schedules.find((schedule) => {
+        const [hours, minutes] = schedule.time
+            .split(":")
+            .map(Number);
+
+        return hours * 60 + minutes >= currentMinutes;
+    }) ?? null;
 }
 
 export default function Dashboard({
     schedules,
-    nextSchedule,
-    onRingNow,
+    automaticEnabled,
+    onToggleAutomatic,
     onEditSchedule,
 }: DashboardProps) {
+    const [now, setNow] =
+        useState(() => new Date());
+
+    useEffect(() => {
+        const timer = window.setInterval(() => {
+            setNow(new Date());
+        }, 1000);
+
+        return () => window.clearInterval(timer);
+    }, []);
+
     const visibleSchedules =
         schedules.slice(0, 4);
+
+    const upcomingSchedule =
+        getNextSchedule(schedules, now);
+
+    const dateLabel = new Intl.DateTimeFormat(
+        "et-EE",
+        {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+        }
+    ).format(now);
+
+    const timeLabel = now.toLocaleTimeString(
+        "et-EE",
+        {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+        }
+    );
 
     return (
         <main
@@ -105,7 +137,7 @@ export default function Dashboard({
                         text-[#1b212d]
                     "
                 >
-                    Добрый день
+                    Tere päevast
                 </h1>
 
                 <p
@@ -120,7 +152,7 @@ export default function Dashboard({
                         text-[#647085]
                     "
                 >
-                    Понедельник, 28 сентября 2026
+                    {dateLabel} · {timeLabel}
                 </p>
             </header>
 
@@ -154,12 +186,12 @@ export default function Dashboard({
                         text-[#647085]
                     "
                 >
-                    СИСТЕМА
+                    SÜSTEEM
                 </p>
 
 
                 <p
-                    className="
+                    className={`
                         absolute
                         left-[35px]
                         top-[56px]
@@ -170,10 +202,16 @@ export default function Dashboard({
                         text-[24px]
                         font-semibold
                         leading-[46px]
-                        text-[#40c77a]
-                    "
+                        ${
+                            automaticEnabled
+                                ? "text-[#40c77a]"
+                                : "text-[#9aa3b2]"
+                        }
+                    `}
                 >
-                    ●&nbsp;&nbsp;Автоматические звонки включены
+                    {automaticEnabled
+                        ? "●  Automaatsed kellad on sisse lülitatud"
+                        : "○  Automaatsed kellad on välja lülitatud"}
                 </p>
 
 
@@ -192,7 +230,7 @@ export default function Dashboard({
                         text-[#647085]
                     "
                 >
-                    Следующий звонок
+                    Järgmine kell
                 </p>
 
 
@@ -211,7 +249,7 @@ export default function Dashboard({
                         text-[#1b212d]
                     "
                 >
-                    {nextSchedule?.time ?? "10:45"}
+                    {upcomingSchedule?.time ?? "--:--"}
                 </p>
 
 
@@ -230,35 +268,40 @@ export default function Dashboard({
                         text-[#647085]
                     "
                 >
-                    Урок №3&nbsp; · &nbsp;
+                    Järgmine sündmus&nbsp; · &nbsp;
                     {getTimeUntilNextBell(
-                        nextSchedule?.time
+                        upcomingSchedule?.time,
+                        now
                     )}
                 </p>
 
 
                 <button
                     type="button"
-                    onClick={onRingNow}
+                    onClick={onToggleAutomatic}
                     className="
                         absolute
-                        left-[800px]
-                        top-[130px]
+                        right-[35px]
+                        top-[28px]
                         h-[44px]
-                        w-[230px]
+                        min-w-[190px]
                         rounded-[10px]
-                        border-0
-                        bg-[#529eff]
+                        border
+                        border-[#d9dee8]
+                        bg-white
                         font-['Inter']
                         text-[14px]
                         font-medium
-                        text-white
+                        text-[#1b212d]
                         transition
-                        hover:bg-[#438fea]
+                        hover:border-[#529eff]
+                        hover:text-[#438fea]
                         active:scale-[0.99]
                     "
                 >
-                    🔔&nbsp;&nbsp;Прозвонить сейчас
+                    {automaticEnabled
+                        ? "Lülita välja"
+                        : "Lülita sisse"}
                 </button>
             </section>
 
@@ -280,7 +323,7 @@ export default function Dashboard({
                         text-[#1b212d]
                     "
                 >
-                    Сегодняшнее расписание
+                    Tänane ajakava
                 </h2>
 
 
@@ -300,7 +343,7 @@ export default function Dashboard({
                                 text-[#647085]
                             "
                         >
-                            Расписание отсутствует
+                            Tänane ajakava puudub
                         </div>
                     ) : (
                         visibleSchedules.map(
@@ -359,34 +402,12 @@ export default function Dashboard({
                                     </span>
 
 
-                                    {/* END */}
-
-                                    <span
-                                        className="
-                                            absolute
-                                            left-[220px]
-                                            top-[15px]
-                                            h-[28px]
-                                            w-[100px]
-                                            font-['Inter']
-                                            text-[16px]
-                                            font-medium
-                                            leading-[28px]
-                                            text-[#1b212d]
-                                        "
-                                    >
-                                        {getEndTime(
-                                            schedule.time
-                                        )}
-                                    </span>
-
-
                                     {/* TYPE */}
 
                                     <span
                                         className="
                                             absolute
-                                            left-[355px]
+                                            left-[220px]
                                             top-[15px]
                                             h-[28px]
                                             w-[160px]
@@ -397,7 +418,7 @@ export default function Dashboard({
                                             text-[#1b212d]
                                         "
                                     >
-                                        Урок
+                                        Tund
                                     </span>
 
 
@@ -406,7 +427,7 @@ export default function Dashboard({
                                     <span
                                         className="
                                             absolute
-                                            left-[540px]
+                                            left-[405px]
                                             top-[15px]
                                             h-[28px]
                                             w-[300px]
@@ -422,7 +443,7 @@ export default function Dashboard({
                                     >
                                         ♫&nbsp;&nbsp;
                                         {schedule.sound?.fileName ??
-                                            "school_bell.mp3"}
+                                            "koolikell.mp3"}
                                     </span>
 
 

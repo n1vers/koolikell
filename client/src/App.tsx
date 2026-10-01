@@ -1,15 +1,20 @@
 import { useEffect, useState } from "react";
-
+import AudioSettings from "./components/AudioSettings";
 import Dashboard from "./pages/Dashboard";
 import Sidebar from "./components/Sidebar";
 import Profiles from "./pages/Profiles";
 import ScheduleEditor from "./pages/ScheduleEditor";
-
+import SoundsPage from "./pages/SoundsPage";
 import type {
     Profile,
     Schedule,
     Sound,
 } from "./types";
+
+import {
+    startBellScheduler,
+    stopBellScheduler,
+} from "./services/bellScheduler";
 
 import {
     getProfiles,
@@ -28,6 +33,18 @@ type Page =
     | "sounds"
     | "settings"
     | "schedule-editor";
+
+interface WindowsSettings {
+    openAtLogin: boolean;
+    openAsHidden: boolean;
+}
+
+const WEEK_DAYS = [1, 2, 3, 4, 5, 6, 7];
+
+function getTodayNumber() {
+    const day = new Date().getDay();
+    return day === 0 ? 7 : day;
+}
 
 export default function App() {
     // =========================================
@@ -55,6 +72,12 @@ export default function App() {
     const [schedules, setSchedules] =
         useState<Schedule[]>([]);
 
+    const [profileByDay, setProfileByDay] =
+        useState<Record<number, number | null>>({});
+
+    const [todayNumber, setTodayNumber] =
+        useState(getTodayNumber);
+
     const [sounds, setSounds] =
         useState<Sound[]>([]);
 
@@ -79,6 +102,20 @@ export default function App() {
     const [error, setError] =
         useState("");
 
+    const [automaticEnabled, setAutomaticEnabled] =
+        useState(
+            () =>
+                localStorage.getItem(
+                    "schoolbell-automatic-enabled"
+                ) !== "false"
+        );
+
+    const [windowsSettings, setWindowsSettings] =
+        useState<WindowsSettings>({
+            openAtLogin: false,
+            openAsHidden: false,
+        });
+
 
     // =========================================
     // LOAD DATA
@@ -86,8 +123,203 @@ export default function App() {
 
     useEffect(() => {
         loadData();
+
     }, []);
 
+    useEffect(() => {
+        if (automaticEnabled) {
+            startBellScheduler();
+        } else {
+            stopBellScheduler();
+        }
+
+        return () => stopBellScheduler();
+    }, [automaticEnabled]);
+
+    function handleToggleAutomatic() {
+        setAutomaticEnabled((current) => {
+            const next = !current;
+
+            localStorage.setItem(
+                "schoolbell-automatic-enabled",
+                String(next)
+            );
+
+            return next;
+        });
+    }
+
+    useEffect(() => {
+        const timer = window.setInterval(() => {
+            setTodayNumber(getTodayNumber());
+        }, 60_000);
+
+        return () => window.clearInterval(timer);
+    }, []);
+
+    useEffect(() => {
+        if (currentPage !== "settings") {
+            return;
+        }
+
+        const loadWindowsSettings = async () => {
+            if (window.electronAPI) {
+                const settings =
+                    await window.electronAPI.getWindowsSettings();
+
+                setWindowsSettings(settings);
+                return;
+            }
+
+            const saved = localStorage.getItem(
+                "schoolbell-windows-settings"
+            );
+
+            if (saved) {
+                setWindowsSettings(
+                    JSON.parse(saved) as WindowsSettings
+                );
+            }
+        };
+
+        void loadWindowsSettings();
+    }, [currentPage]);
+
+    async function updateWindowsSetting(
+        key: keyof WindowsSettings,
+        value: boolean
+    ) {
+        const next = {
+            ...windowsSettings,
+            [key]: value,
+        };
+
+        setWindowsSettings(next);
+        localStorage.setItem(
+            "schoolbell-windows-settings",
+            JSON.stringify(next)
+        );
+
+        if (window.electronAPI) {
+            await window.electronAPI.setWindowsSettings(next);
+        }
+    }
+
+    useEffect(() => {
+        if (currentPage !== "schedule-editor") {
+            return;
+        }
+
+        getSounds()
+            .then((soundsData) => {
+                setSounds(soundsData);
+            })
+            .catch((loadError) => {
+                console.error(
+                    "Failed to refresh sounds:",
+                    loadError
+                );
+            });
+    }, [currentPage]);
+
+    useEffect(() => {
+        const profileId =
+            todayNumber <= 5
+                ? profileByDay[todayNumber] ?? profiles[0]?.id
+                : null;
+
+        setSchedules(
+            profileId
+                ? schedulesByProfile[profileId] ?? []
+                : []
+        );
+    }, [
+        profileByDay,
+        profiles,
+        schedulesByProfile,
+        todayNumber,
+    ]);
+
+
+useEffect(() => {
+
+    if (
+        !window.electronAPI
+    ) {
+
+        console.log(
+            "Electron API unavailable"
+        );
+
+        return;
+
+    }
+
+
+    const unsubscribe =
+        window.electronAPI.onBell(
+            (event) => {
+
+                console.log(
+                    "🔔 Bell received:",
+                    event
+                );
+
+
+                if (
+                    !event.soundUrl
+                ) {
+
+                    console.warn(
+                        "No sound assigned to this schedule"
+                    );
+
+                    return;
+
+                }
+
+
+                const audio =
+                    new Audio(
+                        event.soundUrl
+                    );
+
+
+                audio.volume = 1;
+
+
+                audio.play()
+                    .then(
+                        () => {
+
+                            console.log(
+                                `🔊 Playing ${event.type}`
+                            );
+
+                        }
+                    )
+                    .catch(
+                        (error) => {
+
+                            console.error(
+                                "Failed to play sound:",
+                                error
+                            );
+
+                        }
+                    );
+
+            }
+        );
+
+
+    return () => {
+
+        unsubscribe();
+
+    };
+
+}, []);
 
     async function loadData() {
         try {
@@ -104,6 +336,31 @@ export default function App() {
             setProfiles(
                 profilesData
             );
+
+            const savedAssignments =
+                JSON.parse(
+                    localStorage.getItem(
+                        "schoolbell-profile-by-day"
+                    ) ?? "{}"
+                ) as Record<string, number>;
+
+            const assignments = WEEK_DAYS.reduce(
+                (result, day) => {
+                    const profileId =
+                        savedAssignments[String(day)];
+
+                    result[day] = profilesData.some(
+                        (profile) => profile.id === profileId
+                    )
+                        ? profileId
+                        : profilesData[0]?.id ?? null;
+
+                    return result;
+                },
+                {} as Record<number, number | null>
+            );
+
+            setProfileByDay(assignments);
 
 
             // -----------------------------
@@ -162,23 +419,6 @@ export default function App() {
             // Dashboard schedules
             // -----------------------------
 
-            if (
-                profilesData.length > 0
-            ) {
-                const firstProfile =
-                    profilesData[0];
-
-                const firstSchedules =
-                    scheduleMap[
-                        firstProfile.id
-                    ] ?? [];
-
-                setSchedules(
-                    firstSchedules
-                );
-            } else {
-                setSchedules([]);
-            }
         } catch (error) {
             console.error(
                 "Failed to load application data:",
@@ -191,6 +431,25 @@ export default function App() {
         } finally {
             setLoading(false);
         }
+    }
+
+    function handleAssignProfile(
+        day: number,
+        profileId: number | null
+    ) {
+        setProfileByDay((current) => {
+            const next = {
+                ...current,
+                [day]: profileId,
+            };
+
+            localStorage.setItem(
+                "schoolbell-profile-by-day",
+                JSON.stringify(next)
+            );
+
+            return next;
+        });
     }
 
 
@@ -363,69 +622,58 @@ export default function App() {
     // =========================================
 
     async function handleAddSchedule(
-        time: string,
-        soundId: number | null
-    ) {
-        if (
-            !selectedProfile
-        ) {
-            return;
-        }
-
-        try {
-            /*
-             * Пока Frame 03 не имеет
-             * выбора дня недели.
-             *
-             * 1 = Monday.
-             *
-             * Позже сделаем нормальный
-             * выбор E/T/K/N/R...
-             */
-
-            const dayOfWeek = 1;
-
-            const createdSchedule =
-                await createSchedule(
-                    selectedProfile.id,
-                    dayOfWeek,
-                    time,
-                    soundId
-                );
-
-
-            // Add to current profile
-            setSchedulesByProfile(
-                (current) => ({
-                    ...current,
-
-                    [selectedProfile.id]:
-                        [
-                            ...(current[
-                                selectedProfile
-                                    .id
-                            ] ?? []),
-
-                            createdSchedule,
-                        ],
-                })
-            );
-
-
-            // Update dashboard
-            setSchedules(
-                (current) => [
-                    ...current,
-                    createdSchedule,
-                ]
-            );
-        } catch (error) {
-            console.error(
-                "Failed to create schedule:",
-                error
-            );
-        }
+    time: string,
+    type: "LESSON_START" | "LESSON_END",
+    preBellEnabled: boolean,
+    soundId: number | null,
+    preBellSoundId: number | null
+) {
+    if (!selectedProfile) {
+        return;
     }
+
+    try {
+        const dayOfWeek = 1;
+
+        const createdSchedule =
+            await createSchedule(
+                selectedProfile.id,
+                dayOfWeek,
+                time,
+                type,
+                preBellEnabled,
+                soundId,
+                preBellSoundId
+            );
+
+        setSchedulesByProfile(
+            (current) => ({
+                ...current,
+
+                [selectedProfile.id]: [
+                    ...(current[
+                        selectedProfile.id
+                    ] ?? []),
+
+                    createdSchedule,
+                ],
+            })
+        );
+
+        setSchedules(
+            (current) => [
+                ...current,
+                createdSchedule,
+            ]
+        );
+
+    } catch (error) {
+        console.error(
+            "Failed to create schedule:",
+            error
+        );
+    }
+}
 
 
     // =========================================
@@ -433,73 +681,70 @@ export default function App() {
     // =========================================
 
     async function handleUpdateSchedule(
-        schedule: Schedule
-    ) {
-        if (
-            !selectedProfile
-        ) {
-            return;
-        }
+    schedule: Schedule
+) {
+    if (!selectedProfile) {
+        return;
+    }
 
-        try {
-            const updatedSchedule =
-                await updateSchedule(
-                    schedule.id,
+    try {
+        const updatedSchedule =
+            await updateSchedule(
+                schedule.id,
 
-                    Number(
-                        schedule.dayOfWeek
-                    ),
+                Number(
+                    schedule.dayOfWeek
+                ),
 
-                    schedule.time,
+                schedule.time,
 
-                    schedule.enabled !==
-                        false,
+                schedule.type,
 
-                    schedule.soundId ??
-                        null
-                );
+                schedule.enabled,
 
+                schedule.preBellEnabled,
 
-            // Update profile schedules
-            setSchedulesByProfile(
-                (current) => ({
-                    ...current,
-
-                    [selectedProfile.id]:
-                        (
-                            current[
-                                selectedProfile
-                                    .id
-                            ] ?? []
-                        ).map(
-                            (item) =>
-                                item.id ===
-                                updatedSchedule.id
-                                    ? updatedSchedule
-                                    : item
-                        ),
-                })
+                    schedule.soundId ?? null,
+                    schedule.preBellSoundId ?? null
             );
 
+        setSchedulesByProfile(
+            (current) => ({
+                ...current,
 
-            // Update dashboard
-            setSchedules(
-                (current) =>
-                    current.map(
+                [selectedProfile.id]:
+                    (
+                        current[
+                            selectedProfile.id
+                        ] ?? []
+                    ).map(
                         (item) =>
                             item.id ===
                             updatedSchedule.id
                                 ? updatedSchedule
                                 : item
-                    )
-            );
-        } catch (error) {
-            console.error(
-                "Failed to update schedule:",
-                error
-            );
-        }
+                    ),
+            })
+        );
+
+        setSchedules(
+            (current) =>
+                current.map(
+                    (item) =>
+                        item.id ===
+                        updatedSchedule.id
+                            ? updatedSchedule
+                            : item
+                )
+        );
+
+    } catch (error) {
+        console.error(
+            "Failed to update schedule:",
+            error
+        );
     }
+}
 
 
     // =========================================
@@ -589,18 +834,6 @@ export default function App() {
     // =========================================
     // MANUAL BELL
     // =========================================
-
-    function handleRingNow() {
-        console.log(
-            "Manual bell"
-        );
-
-        /*
-         * Позже здесь подключим
-         * реальное воспроизведение MP3.
-         */
-    }
-
 
     // =========================================
     // DASHBOARD EDIT
@@ -711,7 +944,8 @@ export default function App() {
         <div
             className="
                 min-h-screen
-                min-w-[1200px]
+                min-w-0
+                overflow-x-hidden
                 bg-[#f5f7fb]
             "
         >
@@ -745,8 +979,12 @@ export default function App() {
                         null
                     }
 
-                    onRingNow={
-                        handleRingNow
+                    automaticEnabled={
+                        automaticEnabled
+                    }
+
+                    onToggleAutomatic={
+                        handleToggleAutomatic
                     }
 
                     onEditSchedule={
@@ -785,6 +1023,14 @@ export default function App() {
 
                     onOpenProfile={
                         handleOpenProfile
+                    }
+
+                    profileByDay={
+                        profileByDay
+                    }
+
+                    onAssignProfile={
+                        handleAssignProfile
                     }
                 />
             )}
@@ -840,20 +1086,9 @@ export default function App() {
             {/* SOUNDS */}
             {/* ================================= */}
 
-            {currentPage ===
-                "sounds" && (
-                <div
-                    className="
-                        ml-[240px]
-                        p-[40px]
-                        font-['Inter']
-                    "
-                >
-                    Helid (
-                    {sounds.length}
-                    )
-                </div>
-            )}
+            {currentPage === "sounds" && (
+    <SoundsPage />
+)}
 
 
             {/* ================================= */}
@@ -862,15 +1097,84 @@ export default function App() {
 
             {currentPage ===
                 "settings" && (
-                <div
-                    className="
-                        ml-[240px]
-                        p-[40px]
-                        font-['Inter']
-                    "
-                >
-                    Seaded
-                </div>
+                <main className="ml-[240px] min-h-screen bg-[#f5f7fb] px-[clamp(24px,4vw,64px)] py-[56px] font-['Inter']">
+                    <header className="mb-[32px] max-w-[720px]">
+                        <p className="mb-[8px] text-[12px] font-medium uppercase tracking-[0.08em] text-[#647085]">
+                            RAKENDUS
+                        </p>
+                        <h1 className="m-0 text-[32px] font-semibold leading-[1.15] text-[#1b212d]">
+                            Seaded
+                        </h1>
+                        <p className="mt-[10px] text-[15px] leading-[24px] text-[#647085]">
+                            Kohanda heli ja Windowsi käitumist.
+                        </p>
+                    </header>
+
+                    <div className="grid w-full max-w-[960px] gap-[18px] xl:grid-cols-2">
+                        <section className="rounded-[14px] border border-[#e5e9f0] bg-white p-[24px] shadow-[0_8px_24px_rgba(27,33,45,0.04)]">
+                            <h2 className="m-0 text-[18px] font-semibold text-[#1b212d]">
+                                Heli
+                            </h2>
+                            <p className="mb-[24px] mt-[8px] text-[14px] leading-[22px] text-[#647085]">
+                                Vali heliväljund ja helitugevus.
+                            </p>
+                            <AudioSettings />
+                        </section>
+
+                        <section className="rounded-[14px] border border-[#e5e9f0] bg-white p-[24px] shadow-[0_8px_24px_rgba(27,33,45,0.04)]">
+                            <h2 className="m-0 text-[18px] font-semibold text-[#1b212d]">
+                                Windows
+                            </h2>
+                            <p className="mb-[18px] mt-[8px] text-[14px] leading-[22px] text-[#647085]">
+                                Määra, kuidas SchoolBell Windowsis käivitub.
+                            </p>
+
+                            <label className="flex cursor-pointer items-start justify-between gap-[20px] border-b border-[#eef1f5] py-[16px]">
+                                <span>
+                                    <span className="block text-[14px] font-medium text-[#1b212d]">
+                                        Käivita Windowsiga
+                                    </span>
+                                    <span className="mt-[4px] block text-[13px] leading-[20px] text-[#7b8494]">
+                                        Ava SchoolBell automaatselt pärast sisselogimist.
+                                    </span>
+                                </span>
+                                <input
+                                    type="checkbox"
+                                    checked={windowsSettings.openAtLogin}
+                                    onChange={(event) =>
+                                        void updateWindowsSetting(
+                                            "openAtLogin",
+                                            event.target.checked
+                                        )
+                                    }
+                                    className="mt-[3px] h-[18px] w-[18px] accent-[#529eff]"
+                                />
+                            </label>
+
+                            <label className="flex cursor-pointer items-start justify-between gap-[20px] py-[16px]">
+                                <span>
+                                    <span className="block text-[14px] font-medium text-[#1b212d]">
+                                        Käivita minimeeritult
+                                    </span>
+                                    <span className="mt-[4px] block text-[13px] leading-[20px] text-[#7b8494]">
+                                        Käivitub taustal ilma akent avamata.
+                                    </span>
+                                </span>
+                                <input
+                                    type="checkbox"
+                                    checked={windowsSettings.openAsHidden}
+                                    onChange={(event) =>
+                                        void updateWindowsSetting(
+                                            "openAsHidden",
+                                            event.target.checked
+                                        )
+                                    }
+                                    className="mt-[3px] h-[18px] w-[18px] accent-[#529eff]"
+                                />
+                            </label>
+                        </section>
+                    </div>
+                </main>
             )}
         </div>
     );

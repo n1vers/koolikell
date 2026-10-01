@@ -1,36 +1,154 @@
 import multer from "multer";
 import path from "path";
+import fs from "fs";
 
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, "sounds/");
-    },
 
-    filename: (req, file, cb) => {
-        const extension = path.extname(file.originalname);
+// ============================================
+// SOUNDS DIRECTORY
+// ============================================
 
-        const fileName =
-            `${Date.now()}-${Math.round(Math.random() * 1e9)}${extension}`;
+const soundsDirectory = path.join(
+    process.cwd(),
+    "sounds"
+);
 
-        cb(null, fileName);
-    },
-});
 
-const fileFilter = (
-    req: Express.Request,
-    file: Express.Multer.File,
-    cb: multer.FileFilterCallback
-) => {
-    const extension = path.extname(file.originalname).toLowerCase();
+// Создаём папку автоматически,
+// если её ещё нет.
 
-    if (extension === ".mp3") {
-        cb(null, true);
-    } else {
-        cb(new Error("Only MP3 files are allowed"));
-    }
-};
+if (!fs.existsSync(soundsDirectory)) {
 
-export const uploadSound = multer({
-    storage,
-    fileFilter,
-});
+    fs.mkdirSync(
+        soundsDirectory,
+        {
+            recursive: true,
+        }
+    );
+
+}
+
+
+// ============================================
+// STORAGE
+// ============================================
+
+const storage =
+    multer.diskStorage({
+
+        destination: (
+            req,
+            file,
+            callback
+        ) => {
+
+            callback(
+                null,
+                soundsDirectory
+            );
+
+        },
+
+
+        filename: (
+            req,
+            file,
+            callback
+        ) => {
+
+            const extension =
+                path.extname(
+                    file.originalname
+                ).toLowerCase();
+
+
+            const baseName =
+                path.basename(
+                    file.originalname,
+                    extension
+                )
+                    .replace(
+                        /[^a-zA-Z0-9а-яА-ЯёЁ_-]/g,
+                        "_"
+                    );
+
+
+            const uniqueName =
+                `${baseName}_${Date.now()}${extension}`;
+
+
+            callback(
+                null,
+                uniqueName
+            );
+
+        },
+
+    });
+
+
+// ============================================
+// FILE FILTER
+// ============================================
+
+const fileFilter: multer.Options["fileFilter"] =
+    (
+        req,
+        file,
+        callback
+    ) => {
+
+        const extension =
+            path.extname(
+                file.originalname
+            ).toLowerCase();
+
+
+        const allowedExtensions = [
+            ".mp3",
+            ".wav",
+            ".ogg",
+        ];
+
+
+        if (
+            !allowedExtensions.includes(
+                extension
+            )
+        ) {
+
+            return callback(
+                new Error(
+                    "Ainult MP3, WAV ja OGG failid on lubatud."
+                )
+            );
+
+        }
+
+
+        callback(
+            null,
+            true
+        );
+
+    };
+
+
+// ============================================
+// UPLOAD
+// ============================================
+
+export const uploadSound =
+    multer({
+
+        storage,
+
+        fileFilter,
+
+        limits: {
+
+            fileSize:
+                50 * 1024 * 1024,
+
+        },
+
+    });

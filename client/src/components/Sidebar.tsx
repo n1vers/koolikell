@@ -18,22 +18,22 @@ export default function Sidebar({
         {
             id: "dashboard",
             icon: "⌂",
-            label: "Главная",
+            label: "Avaleht",
         },
         {
             id: "profiles",
             icon: "▣",
-            label: "Расписания",
+            label: "Ajakavad",
         },
         {
             id: "sounds",
             icon: "♫",
-            label: "Звуки",
+            label: "Helid",
         },
         {
             id: "settings",
             icon: "⚙",
-            label: "Настройки",
+            label: "Seaded",
         },
     ] as const;
 

@@ -1,14 +1,65 @@
 {
-    
+    "name": "schoolbell",
+    "version": "1.0.0",
+    "productName": "SchoolBell",
+    "description": "Koolikellade ajakava ja automaatne helistamine Windowsis",
+    "main": "dist-electron/main.js",
     "scripts": {
     "client": "npm --prefix client run dev",
+    "client:build": "npm --prefix client run build",
 
     "server:build": "npm --prefix server run build",
 
     "electron:build": "tsc -p tsconfig.electron.json",
 
-    "electron": "npm run server:build && concurrently -k \"npm run client\" \"npm run electron:build && electron dist-electron/main.js\""
+    "electron": "npm run server:build && concurrently -k --success command \"npm run client\" \"npm run electron:build && electron dist-electron/main.js\"",
+    "dist:win": "npm run client:build && npm run server:build && npm run electron:build && electron-builder --win nsis"
 },
+
+    "build": {
+        "appId": "ee.schoolbell.app",
+        "productName": "SchoolBell",
+        "directories": {
+            "output": "release"
+        },
+        "files": [
+            "dist-electron/**/*",
+            "package.json"
+        ],
+        "extraResources": [
+            {
+                "from": "client/dist",
+                "to": "client/dist"
+            },
+            {
+                "from": "server/dist",
+                "to": "server/dist"
+            },
+            {
+                "from": "server/node_modules",
+                "to": "server/node_modules"
+            },
+            {
+                "from": "server/prisma",
+                "to": "server/prisma"
+            },
+            {
+                "from": "server/sounds",
+                "to": "server/sounds"
+            }
+        ],
+        "win": {
+            "target": "nsis",
+            "icon": "build/icon.ico"
+        },
+        "nsis": {
+            "oneClick": false,
+            "allowToChangeInstallationDirectory": true,
+            "createDesktopShortcut": true,
+            "createStartMenuShortcut": true,
+            "shortcutName": "SchoolBell"
+        }
+    },
 
     "devDependencies": {
         "concurrently": "^9.2.1",

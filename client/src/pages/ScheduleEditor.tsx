@@ -18,7 +18,10 @@ interface ScheduleEditorProps {
 
     onAddSchedule: (
         time: string,
-        soundId: number | null
+        type: "LESSON_START" | "LESSON_END",
+        preBellEnabled: boolean,
+        soundId: number | null,
+        preBellSoundId: number | null
     ) => Promise<void>;
 
     onUpdateSchedule: (
@@ -40,95 +43,251 @@ export default function ScheduleEditor({
     onUpdateSchedule,
     onDeleteSchedule,
 }: ScheduleEditorProps) {
+
     const [saving, setSaving] =
         useState(false);
 
     const [newTime, setNewTime] =
         useState("08:00");
 
+    const [newType, setNewType] =
+        useState<
+            "LESSON_START" |
+            "LESSON_END"
+        >("LESSON_START");
+
+    const [newPreBellEnabled, setNewPreBellEnabled] =
+        useState(true);
+
     const [newSoundId, setNewSoundId] =
         useState<number | null>(null);
 
+    const [newPreBellSoundId, setNewPreBellSoundId] =
+        useState<number | null>(null);
+
+
     // =========================================
-    // ADD LESSON
+    // ADD
     // =========================================
 
     async function handleAdd() {
+
         try {
+
             await onAddSchedule(
                 newTime,
-                newSoundId
+                newType,
+                newType === "LESSON_START"
+                    ? newPreBellEnabled
+                    : false,
+                newSoundId,
+                newPreBellSoundId
             );
 
             setNewTime("08:00");
+            setNewType("LESSON_START");
+            setNewPreBellEnabled(true);
             setNewSoundId(null);
+            setNewPreBellSoundId(null);
+
         } catch (error) {
+
             console.error(
                 "Failed to add schedule:",
                 error
             );
+
         }
+
     }
+
 
     // =========================================
     // SAVE
     // =========================================
 
     async function handleSave() {
+
         try {
+
             setSaving(true);
 
             await onSave();
+
         } catch (error) {
+
             console.error(
                 "Failed to save:",
                 error
             );
+
         } finally {
+
             setSaving(false);
+
         }
+
     }
 
+
     // =========================================
-    // UPDATE TIME
+    // UPDATE
+    // =========================================
+
+    async function updateSchedule(
+        schedule: Schedule,
+        changes: Partial<Schedule>
+    ) {
+
+        const updatedSchedule: Schedule = {
+            ...schedule,
+            ...changes,
+        };
+
+        await onUpdateSchedule(
+            updatedSchedule
+        );
+
+    }
+
+
+    // =========================================
+    // TIME
     // =========================================
 
     async function handleTimeChange(
         schedule: Schedule,
         time: string
     ) {
-        const updatedSchedule: Schedule = {
-            ...schedule,
-            time,
-        };
 
-        await onUpdateSchedule(
-            updatedSchedule
+        await updateSchedule(
+            schedule,
+            { time }
         );
+
     }
 
+
     // =========================================
-    // UPDATE SOUND
+    // TYPE
+    // =========================================
+
+    async function handleTypeChange(
+        schedule: Schedule,
+        type:
+            | "LESSON_START"
+            | "LESSON_END"
+    ) {
+
+        await updateSchedule(
+            schedule,
+            {
+                type,
+
+                /*
+                 * Предзвон возможен
+                 * только перед началом.
+                 */
+
+                preBellEnabled:
+                    type === "LESSON_START"
+                        ? schedule.preBellEnabled
+                        : false,
+            }
+        );
+
+    }
+
+
+    // =========================================
+    // PRE BELL
+    // =========================================
+
+    async function handlePreBellChange(
+        schedule: Schedule,
+        enabled: boolean
+    ) {
+
+        /*
+         * На всякий случай дополнительно
+         * проверяем тип.
+         */
+
+        if (
+            schedule.type !==
+            "LESSON_START"
+        ) {
+            return;
+        }
+
+        await updateSchedule(
+            schedule,
+            {
+                preBellEnabled:
+                    enabled,
+            }
+        );
+
+    }
+
+
+    // =========================================
+    // ENABLED
+    // =========================================
+
+    async function handleEnabledChange(
+        schedule: Schedule,
+        enabled: boolean
+    ) {
+
+        await updateSchedule(
+            schedule,
+            {
+                enabled,
+            }
+        );
+
+    }
+
+
+    // =========================================
+    // SOUND
     // =========================================
 
     async function handleSoundChange(
         schedule: Schedule,
         value: string
     ) {
+
         const soundId =
             value === ""
                 ? null
                 : Number(value);
 
-        const updatedSchedule: Schedule = {
-            ...schedule,
-            soundId,
-        };
+        await updateSchedule(
+            schedule,
+            {
+                soundId,
+            }
+        );
 
-        await onUpdateSchedule(
-            updatedSchedule
+    }
+
+    async function handlePreBellSoundChange(
+        schedule: Schedule,
+        value: string
+    ) {
+        await updateSchedule(
+            schedule,
+            {
+                preBellSoundId:
+                    value === ""
+                        ? null
+                        : Number(value),
+            }
         );
     }
+
 
     // =========================================
     // PAGE
@@ -145,9 +304,8 @@ export default function ScheduleEditor({
                 font-['Inter']
             "
         >
-            {/* ================================= */}
+
             {/* HEADER */}
-            {/* ================================= */}
 
             <div
                 className="
@@ -157,7 +315,9 @@ export default function ScheduleEditor({
                     justify-between
                 "
             >
+
                 <div>
+
                     <button
                         type="button"
                         onClick={onBack}
@@ -174,6 +334,7 @@ export default function ScheduleEditor({
                         ← PROFIL
                     </button>
 
+
                     <h1
                         className="
                             text-[28px]
@@ -184,6 +345,7 @@ export default function ScheduleEditor({
                         {profileName}
                     </h1>
 
+
                     <p
                         className="
                             mt-[6px]
@@ -191,10 +353,12 @@ export default function ScheduleEditor({
                             text-[#7d899d]
                         "
                     >
-                        Muudke tundide aega ja
-                        määratud helisid
+                        Muutke kellade aega,
+                        tüüpi ja helisid
                     </p>
+
                 </div>
+
 
                 <button
                     type="button"
@@ -219,17 +383,16 @@ export default function ScheduleEditor({
                         ? "Salvestamine..."
                         : "Salvesta"}
                 </button>
+
             </div>
 
 
-            {/* ================================= */}
             {/* TABLE HEADER */}
-            {/* ================================= */}
 
             <div
                 className="
                     grid
-                    grid-cols-[45px_85px_85px_110px_1fr_40px]
+                    grid-cols-[45px_90px_130px_100px_100px_1fr_40px]
                     items-center
                     px-[18px]
                     text-[10px]
@@ -239,23 +402,25 @@ export default function ScheduleEditor({
                     text-[#8490a3]
                 "
             >
+
                 <span>№</span>
 
-                <span>Algus</span>
-
-                <span>Lõpp</span>
+                <span>Aeg</span>
 
                 <span>Tüüp</span>
+
+                <span>Predbell</span>
+
+                <span>Seisund</span>
 
                 <span>Heli</span>
 
                 <span />
+
             </div>
 
 
-            {/* ================================= */}
             {/* SCHEDULE LIST */}
-            {/* ================================= */}
 
             <div
                 className="
@@ -263,19 +428,21 @@ export default function ScheduleEditor({
                     space-y-[9px]
                 "
             >
+
                 {schedules.map(
                     (
                         schedule,
                         index
                     ) => (
+
                         <div
                             key={
                                 schedule.id
                             }
                             className="
                                 grid
-                                grid-cols-[45px_85px_85px_110px_1fr_40px]
-                                min-h-[52px]
+                                grid-cols-[45px_90px_130px_100px_100px_1fr_40px]
+                                min-h-[60px]
                                 items-center
                                 rounded-[10px]
                                 bg-white
@@ -283,6 +450,7 @@ export default function ScheduleEditor({
                                 shadow-[0_1px_2px_rgba(0,0,0,0.02)]
                             "
                         >
+
                             {/* NUMBER */}
 
                             <span
@@ -318,39 +486,189 @@ export default function ScheduleEditor({
                                     )
                                 }
                                 className="
-                                    w-[70px]
+                                    w-[80px]
                                     border-none
                                     bg-transparent
                                     p-0
                                     text-[13px]
+                                    font-medium
                                     text-[#28303d]
                                     outline-none
                                 "
                             />
 
 
-                            {/* END */}
-
-                            <span
-                                className="
-                                    text-[13px]
-                                    text-[#28303d]
-                                "
-                            >
-                                —
-                            </span>
-
-
                             {/* TYPE */}
 
-                            <span
+                            <select
+                                value={
+                                    schedule.type
+                                }
+                                onChange={(
+                                    event
+                                ) =>
+                                    handleTypeChange(
+                                        schedule,
+                                        event
+                                            .target
+                                            .value as
+                                            | "LESSON_START"
+                                            | "LESSON_END"
+                                    )
+                                }
                                 className="
-                                    text-[13px]
-                                    text-[#3d4655]
+                                    h-[34px]
+                                    w-[115px]
+                                    rounded-[7px]
+                                    border
+                                    border-[#e2e7ef]
+                                    bg-white
+                                    px-[8px]
+                                    text-[12px]
+                                    text-[#394352]
+                                    outline-none
+                                    focus:border-[#5798f5]
                                 "
                             >
-                                Tund
-                            </span>
+
+                                <option value="LESSON_START">
+                                    Algus
+                                </option>
+
+                                <option value="LESSON_END">
+                                    Lõpp
+                                </option>
+
+                            </select>
+
+
+                            {/* PRE BELL */}
+
+                            <div>
+
+                                {schedule.type ===
+                                    "LESSON_START" ? (
+                                    <>
+                                        <label
+                                            className="
+                                                flex
+                                                cursor-pointer
+                                                items-center
+                                                gap-[7px]
+                                            "
+                                        >
+
+                                        <input
+                                            type="checkbox"
+                                            checked={
+                                                schedule.preBellEnabled
+                                            }
+                                            onChange={(
+                                                event
+                                            ) =>
+                                                handlePreBellChange(
+                                                    schedule,
+                                                    event
+                                                        .target
+                                                        .checked
+                                                )
+                                            }
+                                            className="
+                                                h-[16px]
+                                                w-[16px]
+                                            "
+                                        />
+
+                                        <span
+                                            className="
+                                                text-[11px]
+                                                text-[#697589]
+                                            "
+                                        >
+                                            -2 min
+                                        </span>
+
+                                        </label>
+
+                                        <select
+                                            value={schedule.preBellSoundId ?? ""}
+                                            onChange={(event) =>
+                                                void handlePreBellSoundChange(
+                                                    schedule,
+                                                    event.target.value
+                                                )
+                                            }
+                                            className="mt-[6px] max-w-[115px] rounded-[6px] border border-[#e2e7ef] bg-white text-[10px] text-[#697589]"
+                                        >
+                                            <option value="">Predzvoni heli</option>
+                                            {sounds.map((sound) => (
+                                                <option key={sound.id} value={sound.id}>
+                                                    {sound.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </>
+
+                                ) : (
+
+                                    <span
+                                        className="
+                                            text-[11px]
+                                            text-[#b1b8c4]
+                                        "
+                                    >
+                                        —
+                                    </span>
+
+                                )}
+
+                            </div>
+
+
+                            {/* ENABLED */}
+
+                            <label
+                                className="
+                                    flex
+                                    cursor-pointer
+                                    items-center
+                                "
+                            >
+
+                                <input
+                                    type="checkbox"
+                                    checked={
+                                        schedule.enabled
+                                    }
+                                    onChange={(
+                                        event
+                                    ) =>
+                                        handleEnabledChange(
+                                            schedule,
+                                            event
+                                                .target
+                                                .checked
+                                        )
+                                    }
+                                    className="
+                                        h-[16px]
+                                        w-[16px]
+                                    "
+                                />
+
+                                <span
+                                    className="
+                                        ml-[7px]
+                                        text-[11px]
+                                        text-[#697589]
+                                    "
+                                >
+                                    {schedule.enabled
+                                        ? "Sees"
+                                        : "Väljas"}
+                                </span>
+
+                            </label>
 
 
                             {/* SOUND */}
@@ -379,14 +697,15 @@ export default function ScheduleEditor({
                                     outline-none
                                 "
                             >
+
                                 <option value="">
-                                    ♫ Heli pole määratud
+                                    Heli pole määratud
                                 </option>
 
+
                                 {sounds.map(
-                                    (
-                                        sound
-                                    ) => (
+                                    (sound) => (
+
                                         <option
                                             key={
                                                 sound.id
@@ -395,13 +714,12 @@ export default function ScheduleEditor({
                                                 sound.id
                                             }
                                         >
-                                            ♫{" "}
-                                            {
-                                                sound.name
-                                            }
+                                            {sound.name}
                                         </option>
+
                                     )
                                 )}
+
                             </select>
 
 
@@ -428,127 +746,301 @@ export default function ScheduleEditor({
                                 "
                                 title="Kustuta"
                             >
-                                ⋮
+                                ×
                             </button>
+
                         </div>
+
                     )
                 )}
+
             </div>
 
 
-            {/* ================================= */}
-            {/* ADD LESSON */}
-            {/* ================================= */}
+            {/* ADD */}
 
             <div
                 className="
                     mt-[24px]
-                    flex
-                    items-center
-                    gap-[10px]
+                    rounded-[12px]
+                    bg-white
+                    p-[18px]
+                    shadow-[0_1px_3px_rgba(0,0,0,0.04)]
                 "
             >
-                <input
-                    type="time"
-                    value={newTime}
-                    onChange={(event) =>
-                        setNewTime(
-                            event.target.value
-                        )
-                    }
-                    className="
-                        h-[40px]
-                        rounded-[8px]
-                        border
-                        border-[#e2e7ef]
-                        bg-white
-                        px-[12px]
-                        text-[13px]
-                        text-[#303846]
-                        outline-none
-                        focus:border-[#5798f5]
-                    "
-                />
 
-                <select
-                    value={
-                        newSoundId ?? ""
-                    }
-                    onChange={(event) =>
-                        setNewSoundId(
-                            event.target.value ===
-                                ""
-                                ? null
-                                : Number(
-                                      event
-                                          .target
-                                          .value
-                                  )
-                        )
-                    }
+                <div
                     className="
-                        h-[40px]
-                        min-w-[200px]
-                        rounded-[8px]
-                        border
-                        border-[#e2e7ef]
-                        bg-white
-                        px-[12px]
+                        mb-[14px]
                         text-[13px]
+                        font-medium
                         text-[#303846]
-                        outline-none
-                        focus:border-[#5798f5]
                     "
                 >
-                    <option value="">
-                        Heli pole määratud
-                    </option>
+                    Lisa kell
+                </div>
 
-                    {sounds.map(
-                        (sound) => (
-                            <option
-                                key={
-                                    sound.id
-                                }
-                                value={
-                                    sound.id
-                                }
-                            >
-                                {sound.name}
-                            </option>
-                        )
-                    )}
-                </select>
 
-                <button
-                    type="button"
-                    onClick={handleAdd}
+                <div
                     className="
                         flex
-                        h-[40px]
                         items-center
-                        gap-[6px]
-                        rounded-[8px]
-                        bg-white
-                        px-[14px]
-                        text-[12px]
-                        font-medium
-                        text-[#394352]
-                        shadow-[0_1px_3px_rgba(0,0,0,0.05)]
-                        hover:bg-[#f8fafc]
+                        gap-[10px]
                     "
                 >
-                    <span
+
+                    {/* TIME */}
+
+                    <input
+                        type="time"
+                        value={
+                            newTime
+                        }
+                        onChange={(event) =>
+                            setNewTime(
+                                event.target.value
+                            )
+                        }
                         className="
-                            text-[17px]
+                            h-[40px]
+                            rounded-[8px]
+                            border
+                            border-[#e2e7ef]
+                            bg-white
+                            px-[12px]
+                            text-[13px]
+                            text-[#303846]
+                            outline-none
+                            focus:border-[#5798f5]
+                        "
+                    />
+
+
+                    {/* TYPE */}
+
+                    <select
+                        value={
+                            newType
+                        }
+                        onChange={(event) => {
+
+                            const value =
+                                event.target.value as
+                                    | "LESSON_START"
+                                    | "LESSON_END";
+
+                            setNewType(
+                                value
+                            );
+
+                            if (
+                                value ===
+                                "LESSON_END"
+                            ) {
+                                setNewPreBellEnabled(
+                                    false
+                                );
+                            } else {
+                                setNewPreBellEnabled(
+                                    true
+                                );
+                            }
+
+                        }}
+                        className="
+                            h-[40px]
+                            rounded-[8px]
+                            border
+                            border-[#e2e7ef]
+                            bg-white
+                            px-[12px]
+                            text-[13px]
+                            text-[#303846]
+                            outline-none
+                            focus:border-[#5798f5]
                         "
                     >
-                        +
-                    </span>
 
-                    Lisa tund
-                </button>
+                        <option value="LESSON_START">
+                            Algus
+                        </option>
+
+                        <option value="LESSON_END">
+                            Lõpp
+                        </option>
+
+                    </select>
+
+
+                    {/* PRE BELL */}
+
+                    {newType ===
+                        "LESSON_START" && (
+
+                        <label
+                            className="
+                                flex
+                                h-[40px]
+                                items-center
+                                gap-[7px]
+                                rounded-[8px]
+                                border
+                                border-[#e2e7ef]
+                                px-[12px]
+                            "
+                        >
+
+                            <input
+                                type="checkbox"
+                                checked={
+                                    newPreBellEnabled
+                                }
+                                onChange={(event) =>
+                                    setNewPreBellEnabled(
+                                        event
+                                            .target
+                                            .checked
+                                    )
+                                }
+                                className="
+                                    h-[16px]
+                                    w-[16px]
+                                "
+                            />
+
+                            <span
+                                className="
+                                    text-[12px]
+                                    text-[#596577]
+                                "
+                            >
+                                -2 min
+                            </span>
+
+                        </label>
+
+                    )}
+
+
+                    {/* SOUND */}
+
+                    <select
+                        value={
+                            newSoundId ??
+                            ""
+                        }
+                        onChange={(event) =>
+                            setNewSoundId(
+                                event.target.value ===
+                                    ""
+                                    ? null
+                                    : Number(
+                                        event
+                                            .target
+                                            .value
+                                    )
+                            )
+                        }
+                        className="
+                            h-[40px]
+                            min-w-[200px]
+                            rounded-[8px]
+                            border
+                            border-[#e2e7ef]
+                            bg-white
+                            px-[12px]
+                            text-[13px]
+                            text-[#303846]
+                            outline-none
+                            focus:border-[#5798f5]
+                        "
+                    >
+
+                        <option value="">
+                            Heli pole määratud
+                        </option>
+
+
+                        {sounds.map(
+                            (sound) => (
+
+                                <option
+                                    key={
+                                        sound.id
+                                    }
+                                    value={
+                                        sound.id
+                                    }
+                                >
+                                    {sound.name}
+                                </option>
+
+                            )
+                        )}
+
+                    </select>
+
+                    {newType === "LESSON_START" && (
+                        <select
+                            value={newPreBellSoundId ?? ""}
+                            onChange={(event) =>
+                                setNewPreBellSoundId(
+                                    event.target.value === ""
+                                        ? null
+                                        : Number(event.target.value)
+                                )
+                            }
+                            className="h-[40px] min-w-[200px] rounded-[8px] border border-[#e2e7ef] bg-white px-[12px] text-[13px] text-[#303846] outline-none focus:border-[#5798f5]"
+                        >
+                            <option value="">Predzvoni heli</option>
+                            {sounds.map((sound) => (
+                                <option key={sound.id} value={sound.id}>
+                                    {sound.name}
+                                </option>
+                            ))}
+                        </select>
+                    )}
+
+
+                    {/* ADD BUTTON */}
+
+                    <button
+                        type="button"
+                        onClick={
+                            handleAdd
+                        }
+                        className="
+                            flex
+                            h-[40px]
+                            items-center
+                            gap-[6px]
+                            rounded-[8px]
+                            bg-[#5798f5]
+                            px-[16px]
+                            text-[12px]
+                            font-medium
+                            text-white
+                            shadow-[0_1px_3px_rgba(0,0,0,0.05)]
+                            hover:bg-[#4688e7]
+                        "
+                    >
+
+                        <span
+                            className="
+                                text-[17px]
+                            "
+                        >
+                            +
+                        </span>
+
+                        Lisa kell
+
+                    </button>
+
+                </div>
+
             </div>
+
         </main>
     );
 }

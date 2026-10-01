@@ -1,0 +1,260 @@
+import { playBell } from "./bellAudio";
+
+const API_URL = "http://localhost:3000";
+
+let timer: ReturnType<typeof setInterval> | null = null;
+
+let lastEventKey = "";
+
+
+/**
+ * Получает следующее событие звонка
+ * с backend.
+ */
+async function getNextBell() {
+    const day = new Date().getDay() || 7;
+
+    if (day > 5) {
+        return null;
+    }
+
+    const assignments = JSON.parse(
+        localStorage.getItem("schoolbell-profile-by-day") ?? "{}"
+    ) as Record<string, number>;
+    const profileId = assignments[String(day)] ?? 1;
+
+    const response = await fetch(
+        `${API_URL}/api/profiles/${profileId}/next-event`
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            "Failed to load next bell"
+        );
+    }
+
+    return response.json();
+}
+
+
+/**
+ * Переводит HH:MM в минуты
+ */
+function timeToMinutes(
+    time: string
+): number {
+
+    const [
+        hours,
+        minutes,
+    ] = time
+        .split(":")
+        .map(Number);
+
+    return (
+        hours * 60 +
+        minutes
+    );
+}
+
+
+/**
+ * Проверяет, нужно ли сейчас
+ * проиграть звонок.
+ */
+async function checkBell() {
+
+    try {
+
+        const event =
+            await getNextBell();
+
+
+        if (!event) {
+            return;
+        }
+
+
+        const now =
+            new Date();
+
+
+        const currentDay =
+            now.getDay() === 0
+                ? 7
+                : now.getDay();
+
+
+        /*
+         * Событие должно быть
+         * сегодня.
+         */
+
+        if (
+            event.dayOfWeek !==
+            currentDay
+        ) {
+            return;
+        }
+
+
+        /*
+         * Текущее время.
+         */
+
+        const currentMinutes =
+            now.getHours() * 60 +
+            now.getMinutes();
+
+
+        /*
+         * Время события.
+         */
+
+        const eventMinutes =
+            timeToMinutes(
+                event.eventTime
+            );
+
+
+        /*
+         * Если сейчас не минута
+         * события — ничего не делаем.
+         */
+
+        if (
+            currentMinutes !==
+            eventMinutes
+        ) {
+            return;
+        }
+
+
+        /*
+         * Защита от повторного
+         * проигрывания каждую секунду.
+         */
+
+        const eventKey =
+            [
+                event.scheduleId,
+                event.eventType,
+                event.eventTime,
+                now.toDateString(),
+            ].join("-");
+
+
+        if (
+            lastEventKey ===
+            eventKey
+        ) {
+            return;
+        }
+
+
+        lastEventKey =
+            eventKey;
+
+
+        console.log(
+            "[BELL]",
+            event.eventType,
+            event.eventTime
+        );
+
+
+        /*
+         * Нет звука —
+         * ничего не проигрываем.
+         */
+
+        if (
+            !event.sound ||
+            !event.sound.fileName
+        ) {
+
+            console.warn(
+                "[BELL] No sound assigned"
+            );
+
+            return;
+        }
+
+
+        const soundUrl =
+            `${API_URL}/sounds/${encodeURIComponent(
+                event.sound.fileName
+            )}`;
+
+
+        await playBell(
+            soundUrl
+        );
+
+
+    } catch (error) {
+
+        console.error(
+            "[BELL] Scheduler error:",
+            error
+        );
+
+    }
+}
+
+
+/**
+ * Запускает проверку звонков.
+ */
+export function startBellScheduler() {
+
+    if (timer !== null) {
+        return;
+    }
+
+
+    console.log(
+        "[BELL] Scheduler started"
+    );
+
+
+    /*
+     * Проверяем сразу.
+     */
+
+    void checkBell();
+
+
+    /*
+     * Затем каждую секунду.
+     */
+
+    timer =
+        setInterval(
+            () => {
+                void checkBell();
+            },
+            1000
+        );
+}
+
+
+/**
+ * Останавливает scheduler.
+ */
+export function stopBellScheduler() {
+
+    if (timer === null) {
+        return;
+    }
+
+
+    clearInterval(timer);
+
+    timer = null;
+
+
+    console.log(
+        "[BELL] Scheduler stopped"
+    );
+}

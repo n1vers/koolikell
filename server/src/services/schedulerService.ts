@@ -1,55 +1,91 @@
 import "dotenv/config";
 
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-import { PrismaClient } from "@prisma/client";
+import {
+    PrismaBetterSqlite3,
+} from "@prisma/adapter-better-sqlite3";
+
+import {
+    PrismaClient,
+} from "@prisma/client";
+
 
 const databaseUrl =
     process.env.DATABASE_URL ??
     "file:./schoolbell.db";
 
-const adapter = new PrismaBetterSqlite3({
-    url: databaseUrl.replace(/^file:/, ""),
-});
 
-const prisma = new PrismaClient({
-    adapter,
-});
+const adapter =
+    new PrismaBetterSqlite3({
+        url: databaseUrl.replace(
+            /^file:/,
+            ""
+        ),
+    });
 
 
-// =========================================
+const prisma =
+    new PrismaClient({
+        adapter,
+    });
+
+
+// ============================================
 // TYPES
-// =========================================
+// ============================================
 
 export type BellEventType =
-    | "warning"
-    | "bell";
+    | "PRE_BELL"
+    | "BELL";
+
 
 export interface BellEvent {
-    type: BellEventType;
+
+    scheduleId: number;
+
+    profileId: number;
+
+    dayOfWeek: number;
 
     time: string;
 
-    schedule: {
-        id: number;
-        profileId: number;
-        dayOfWeek: number;
-        time: string;
-        enabled: boolean;
-        soundId: number | null;
-        sound: unknown;
-    };
+    eventTime: string;
+
+    eventType: BellEventType;
+
+    scheduleType:
+        | "LESSON_START"
+        | "LESSON_END";
+
+    soundId: number | null;
+
+    preBellSoundId: number | null;
+
+    sound: unknown;
+
+    preBellSound: unknown;
+
+    preBellEnabled: boolean;
+
+    enabled: boolean;
 }
 
 
-// =========================================
-// HELPERS
-// =========================================
+// ============================================
+// TIME HELPERS
+// ============================================
 
 function timeToMinutes(
     time: string
 ): number {
-    const [hours, minutes] =
-        time.split(":").map(Number);
+
+    const [
+        hours,
+        minutes,
+    ] =
+        time
+            .split(":")
+            .map(Number);
+
 
     return (
         hours * 60 +
@@ -59,89 +95,387 @@ function timeToMinutes(
 
 
 function minutesToTime(
-    totalMinutes: number
+    minutes: number
 ): string {
+
     const normalized =
-        ((totalMinutes % 1440) +
-            1440) %
-        1440;
+        (
+            minutes +
+            24 * 60
+        ) % (24 * 60);
+
 
     const hours =
         Math.floor(
             normalized / 60
         );
 
-    const minutes =
+
+    const mins =
         normalized % 60;
 
-    return `${String(hours).padStart(
-        2,
-        "0"
-    )}:${String(minutes).padStart(
-        2,
-        "0"
-    )}`;
-}
 
-
-function subtractMinutes(
-    time: string,
-    minutes: number
-): string {
-    return minutesToTime(
-        timeToMinutes(time) -
-            minutes
+    return (
+        `${String(hours).padStart(2, "0")}:` +
+        `${String(mins).padStart(2, "0")}`
     );
 }
 
 
-// =========================================
-// GET NEXT MAIN SCHEDULE
-// =========================================
+// ============================================
+// GET NEXT BELL EVENT
+// ============================================
 
-export async function getNextSchedule(
+export async function getNextBellEvent(
     profileId: number
-) {
-    const now = new Date();
+): Promise<BellEvent | null> {
 
-    const jsDay = now.getDay();
+    const now =
+        new Date();
+
 
     /*
-     * JavaScript:
+     * JS:
      *
-     * 0 = Sunday
-     * 1 = Monday
-     * 2 = Tuesday
+     * Sunday = 0
+     * Monday = 1
      * ...
-     * 6 = Saturday
+     * Saturday = 6
      *
-     * Our database:
+     * БД:
      *
-     * 1 = Monday
+     * Monday = 1
      * ...
-     * 7 = Sunday
+     * Sunday = 7
      */
+
+    const jsDay =
+        now.getDay();
+
 
     const currentDay =
         jsDay === 0
             ? 7
             : jsDay;
 
+
+    const currentMinutes =
+        now.getHours() * 60 +
+        now.getMinutes();
+
+
+    /*
+     * Загружаем всё расписание
+     * текущего профиля.
+     */
+
+    const schedules =
+        await prisma.schedule.findMany({
+
+            where: {
+
+                profileId,
+
+                enabled: true,
+            },
+
+            include: {
+                sound: true,
+                preBellSound: true,
+            },
+
+            orderBy: [
+
+                {
+                    dayOfWeek:
+                        "asc",
+                },
+
+                {
+                    time:
+                        "asc",
+                },
+
+            ],
+        });
+
+
+    if (
+        schedules.length === 0
+    ) {
+
+        return null;
+
+    }
+
+
+    /*
+     * Создаём события.
+     *
+     * LESSON_START:
+     *
+     * 08:00
+     * +
+     * preBellEnabled
+     *
+     * =>
+     *
+     * 07:58 PRE_BELL
+     * 08:00 BELL
+     *
+     *
+     * LESSON_END:
+     *
+     * 08:45
+     *
+     * =>
+     *
+     * 08:45 BELL
+     */
+
+    const events:
+        BellEvent[] = [];
+
+
+    for (
+        const schedule of schedules
+    ) {
+
+        /*
+         * Основной звонок.
+         */
+
+        events.push({
+
+            scheduleId:
+                schedule.id,
+
+            profileId:
+                schedule.profileId,
+
+            dayOfWeek:
+                currentDay,
+
+            time:
+                schedule.time,
+
+            eventTime:
+                schedule.time,
+
+            eventType:
+                "BELL",
+
+            scheduleType:
+                schedule.type as
+                    | "LESSON_START"
+                    | "LESSON_END",
+
+            soundId:
+                schedule.soundId,
+
+            preBellSoundId:
+                schedule.preBellSoundId,
+
+            sound:
+                schedule.sound,
+
+            preBellSound:
+                schedule.preBellSound,
+
+            preBellEnabled:
+                schedule.preBellEnabled,
+
+            enabled:
+                schedule.enabled,
+        });
+
+
+        /*
+         * Предзвон существует
+         * ТОЛЬКО перед началом урока.
+         */
+
+        if (
+            schedule.type ===
+                "LESSON_START" &&
+            schedule.preBellEnabled
+        ) {
+
+            const mainMinutes =
+                timeToMinutes(
+                    schedule.time
+                );
+
+
+            const preBellMinutes =
+                mainMinutes - 2;
+
+
+            events.push({
+
+                scheduleId:
+                    schedule.id,
+
+                profileId:
+                    schedule.profileId,
+
+                dayOfWeek:
+                    currentDay,
+
+                time:
+                    schedule.time,
+
+                eventTime:
+                    minutesToTime(
+                        preBellMinutes
+                    ),
+
+                eventType:
+                    "PRE_BELL",
+
+                scheduleType:
+                    "LESSON_START",
+
+                soundId:
+                    schedule.preBellSoundId,
+
+                preBellSoundId:
+                    schedule.preBellSoundId,
+
+                sound:
+                    schedule.preBellSound,
+
+                preBellSound:
+                    schedule.preBellSound,
+
+                preBellEnabled:
+                    true,
+
+                enabled:
+                    schedule.enabled,
+            });
+        }
+    }
+
+
+    /*
+     * Ищем ближайшее событие.
+     */
+
+    for (
+        let offset = 0;
+        offset <= 7;
+        offset++
+    ) {
+
+        const targetDay =
+            (
+                currentDay -
+                1 +
+                offset
+            ) % 7 + 1;
+
+
+        const dayEvents =
+            events
+                .filter(
+                    (event) =>
+                        event.dayOfWeek ===
+                        targetDay
+                )
+                .sort(
+                    (a, b) =>
+                        timeToMinutes(
+                            a.eventTime
+                        ) -
+                        timeToMinutes(
+                            b.eventTime
+                        )
+                );
+
+
+        for (
+            const event of dayEvents
+        ) {
+
+            const eventMinutes =
+                timeToMinutes(
+                    event.eventTime
+                );
+
+
+            /*
+             * Сегодня:
+             *
+             * событие в текущую минуту
+             * НЕ пропускаем.
+             *
+             * Событие считается прошедшим
+             * только если его время меньше
+             * текущего времени.
+             */
+
+            if (
+                offset === 0 &&
+                eventMinutes <
+                    currentMinutes
+            ) {
+
+                continue;
+
+            }
+
+
+            return event;
+        }
+    }
+
+
+    return null;
+}
+
+
+// ============================================
+// GET NEXT NORMAL SCHEDULE
+// ============================================
+
+export async function getNextSchedule(
+    profileId: number
+) {
+
+    const now =
+        new Date();
+
+
+    const jsDay =
+        now.getDay();
+
+
+    const currentDay =
+        jsDay === 0
+            ? 7
+            : jsDay;
+
+
     const currentTime =
         `${String(
             now.getHours()
-        ).padStart(2, "0")}:${String(
+        ).padStart(2, "0")}:` +
+        `${String(
             now.getMinutes()
         ).padStart(2, "0")}`;
 
 
-    // =====================================
-    // TODAY
-    // =====================================
+    /*
+     * Сначала ищем следующий
+     * обычный звонок сегодня.
+     */
 
     const todaySchedules =
         await prisma.schedule.findMany({
+
             where: {
+
                 profileId,
 
                 dayOfWeek:
@@ -169,32 +503,37 @@ export async function getNextSchedule(
 
 
     if (nextToday) {
+
         return nextToday;
+
     }
 
 
-    // =====================================
-    // NEXT DAYS
-    // =====================================
+    /*
+     * Сегодня больше звонков нет.
+     *
+     * Ищем следующий день.
+     */
 
     for (
         let offset = 1;
         offset <= 7;
         offset++
     ) {
+
         const nextDay =
             (
-                (
-                    currentDay -
-                    1 +
-                    offset
-                ) % 7
-            ) + 1;
+                currentDay -
+                1 +
+                offset
+            ) % 7 + 1;
 
 
         const nextSchedules =
             await prisma.schedule.findMany({
+
                 where: {
+
                     profileId,
 
                     dayOfWeek:
@@ -217,267 +556,12 @@ export async function getNextSchedule(
             nextSchedules.length >
             0
         ) {
+
             return nextSchedules[0];
+
         }
     }
 
 
     return null;
-}
-
-
-// =========================================
-// GET NEXT BELL EVENT
-// =========================================
-
-export async function getNextBellEvent(
-    profileId: number
-): Promise<BellEvent | null> {
-    const now = new Date();
-
-    const jsDay =
-        now.getDay();
-
-    const currentDay =
-        jsDay === 0
-            ? 7
-            : jsDay;
-
-    const currentMinutes =
-        now.getHours() * 60 +
-        now.getMinutes();
-
-
-    // =====================================
-    // GET ALL ACTIVE SCHEDULES
-    // =====================================
-
-    const schedules =
-        await prisma.schedule.findMany({
-            where: {
-                profileId,
-                enabled: true,
-            },
-
-            include: {
-                sound: true,
-            },
-
-            orderBy: [
-                {
-                    dayOfWeek: "asc",
-                },
-
-                {
-                    time: "asc",
-                },
-            ],
-        });
-
-
-    if (
-        schedules.length === 0
-    ) {
-        return null;
-    }
-
-
-    // =====================================
-    // CHECK EVENTS
-    // =====================================
-
-    let closestEvent:
-        BellEvent | null = null;
-
-    let closestDifference =
-        Infinity;
-
-
-    for (
-        let dayOffset = 0;
-        dayOffset <= 7;
-        dayOffset++
-    ) {
-        const targetDay =
-            (
-                (
-                    currentDay -
-                    1 +
-                    dayOffset
-                ) % 7
-            ) + 1;
-
-
-        const daySchedules =
-            schedules.filter(
-                (schedule) =>
-                    schedule.dayOfWeek ===
-                    targetDay
-            );
-
-
-        for (
-            const schedule
-            of daySchedules
-        ) {
-            const bellMinutes =
-                timeToMinutes(
-                    schedule.time
-                );
-
-
-            // =================================
-            // MAIN BELL
-            // =================================
-
-            let eventMinutes =
-                bellMinutes;
-
-            let eventType:
-                BellEventType =
-                "bell";
-
-
-            /*
-             * For today:
-             *
-             * 08:00 is valid only if
-             * it hasn't happened yet.
-             *
-             * For future days everything
-             * is valid.
-             */
-
-            if (
-                dayOffset === 0 &&
-                eventMinutes <=
-                    currentMinutes
-            ) {
-                continue;
-            }
-
-
-            let difference =
-                dayOffset *
-                    1440 +
-                eventMinutes -
-                currentMinutes;
-
-
-            if (
-                difference >= 0 &&
-                difference <
-                    closestDifference
-            ) {
-                closestDifference =
-                    difference;
-
-                closestEvent = {
-                    type:
-                        eventType,
-
-                    time:
-                        minutesToTime(
-                            eventMinutes
-                        ),
-
-                    schedule,
-                };
-            }
-
-
-            // =================================
-            // WARNING BELL
-            // =================================
-
-            const warningMinutes =
-                bellMinutes - 2;
-
-
-            /*
-             * Предзвон может попасть
-             * на предыдущий день.
-             *
-             * Например:
-             *
-             * 00:01 основной
-             * 23:59 предзвон
-             *
-             * Поэтому нормализуем время.
-             */
-
-            let warningDayOffset =
-                dayOffset;
-
-            let normalizedWarningMinutes =
-                warningMinutes;
-
-
-            if (
-                warningMinutes < 0
-            ) {
-                normalizedWarningMinutes +=
-                    1440;
-
-                warningDayOffset -=
-                    1;
-            }
-
-
-            /*
-             * Если предзвон
-             * относится к вчерашнему
-             * дню — пропускаем.
-             */
-
-            if (
-                warningDayOffset <
-                0
-            ) {
-                continue;
-            }
-
-
-            if (
-                warningDayOffset ===
-                    0 &&
-                normalizedWarningMinutes <=
-                    currentMinutes
-            ) {
-                continue;
-            }
-
-
-            difference =
-                warningDayOffset *
-                    1440 +
-                normalizedWarningMinutes -
-                currentMinutes;
-
-
-            if (
-                difference >= 0 &&
-                difference <
-                    closestDifference
-            ) {
-                closestDifference =
-                    difference;
-
-                closestEvent = {
-                    type:
-                        "warning",
-
-                    time:
-                        minutesToTime(
-                            normalizedWarningMinutes
-                        ),
-
-                    schedule,
-                };
-            }
-        }
-    }
-
-
-    return closestEvent;
 }

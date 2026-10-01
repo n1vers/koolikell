@@ -260,83 +260,165 @@ app.get(
 app.post(
     "/api/profiles/:profileId/schedules",
     async (req, res) => {
+
         try {
+
             const profileId =
                 Number(
                     req.params.profileId
                 );
 
+
             const {
                 dayOfWeek,
                 time,
+                type,
+                enabled,
+                preBellEnabled,
                 soundId,
+                preBellSoundId,
             } = req.body;
 
 
             if (
-                dayOfWeek ===
-                    undefined ||
-                !time
+                !dayOfWeek ||
+                !time ||
+                !type
             ) {
-                return res
-                    .status(400)
-                    .json({
-                        error:
-                            "Day and time are required",
-                    });
+
+                return res.status(
+                    400
+                ).json({
+
+                    error:
+                        "Day, time and type are required",
+
+                });
+
             }
 
 
-            const schedule =
-                await createSchedule(
-                    profileId,
-                    Number(
-                        dayOfWeek
-                    ),
-                    time,
-                    soundId ??
-                        null
-                );
+            if (
+                type !==
+                    "LESSON_START" &&
+                type !==
+                    "LESSON_END"
+            ) {
+
+                return res.status(
+                    400
+                ).json({
+
+                    error:
+                        "Invalid schedule type",
+
+                });
+
+            }
 
 
-            res
-                .status(201)
-                .json(
-                    schedule
-                );
+            const schedule = await createSchedule(
+                profileId,
+                dayOfWeek,
+                time,
+                type,
+                preBellEnabled,
+                soundId ?? null
+                ,
+                preBellSoundId ?? null
+            );
+
+
+            res.status(
+                201
+            ).json(
+                schedule
+            );
+
+
         } catch (error) {
+
             console.error(
                 error
             );
 
-            res.status(500).json({
+
+            res.status(
+                500
+            ).json({
+
                 error:
                     "Failed to create schedule",
+
             });
+
         }
+
     }
 );
-
-
 app.put(
     "/api/schedules/:id",
     async (req, res) => {
+
         try {
+
             const id =
                 Number(
                     req.params.id
                 );
 
+
             const {
                 dayOfWeek,
                 time,
+                type,
                 enabled,
+                preBellEnabled,
                 soundId,
+                preBellSoundId,
             } = req.body;
+
+
+            if (
+                !dayOfWeek ||
+                !time ||
+                !type
+            ) {
+
+                return res.status(
+                    400
+                ).json({
+
+                    error:
+                        "Day, time and type are required",
+
+                });
+
+            }
+
+
+            if (
+                type !==
+                    "LESSON_START" &&
+                type !==
+                    "LESSON_END"
+            ) {
+
+                return res.status(
+                    400
+                ).json({
+
+                    error:
+                        "Invalid schedule type",
+
+                });
+
+            }
 
 
             const schedule =
                 await updateSchedule(
+
                     id,
 
                     Number(
@@ -345,11 +427,23 @@ app.put(
 
                     time,
 
-                    Boolean(
-                        enabled
-                    ),
+                    type,
+
+                    enabled ??
+                        true,
+
+                    type ===
+                        "LESSON_START"
+                        ? (
+                            preBellEnabled ??
+                            true
+                        )
+                        : false,
 
                     soundId ??
+                        null,
+
+                    preBellSoundId ??
                         null
                 );
 
@@ -357,19 +451,28 @@ app.put(
             res.json(
                 schedule
             );
+
+
         } catch (error) {
+
             console.error(
                 error
             );
 
-            res.status(500).json({
+
+            res.status(
+                500
+            ).json({
+
                 error:
                     "Failed to update schedule",
+
             });
+
         }
+
     }
 );
-
 
 app.delete(
     "/api/schedules/:id",
@@ -569,18 +672,20 @@ app.delete(
 
 app.post(
     "/api/sounds/upload",
-    uploadSound.single(
-        "sound"
-    ),
+    uploadSound.single("sound"),
     async (req, res) => {
+
         try {
+
             if (!req.file) {
+
                 return res
                     .status(400)
                     .json({
                         error:
-                            "Sound file is required",
+                            "Helifail on kohustuslik",
                     });
+
             }
 
 
@@ -589,38 +694,55 @@ app.post(
             } = req.body;
 
 
-            if (!name) {
+            if (
+                !name ||
+                !name.trim()
+            ) {
+
                 return res
                     .status(400)
                     .json({
                         error:
-                            "Sound name is required",
+                            "Helifaili nimi on kohustuslik",
                     });
+
             }
+
+
+            console.log(
+                "Sound uploaded:",
+                req.file
+            );
 
 
             const sound =
                 await createSound(
-                    name,
+                    name.trim(),
                     req.file.filename
                 );
 
 
-            res
+            return res
                 .status(201)
-                .json(
-                    sound
-                );
+                .json(sound);
+
         } catch (error) {
+
             console.error(
+                "Sound upload error:",
                 error
             );
 
-            res.status(500).json({
-                error:
-                    "Failed to upload sound",
-            });
+
+            return res
+                .status(500)
+                .json({
+                    error:
+                        "Helifaili üleslaadimine ebaõnnestus",
+                });
+
         }
+
     }
 );
 
@@ -632,32 +754,63 @@ app.post(
 app.get(
     "/api/profiles/:profileId/next",
     async (req, res) => {
+
         try {
+
             const profileId =
                 Number(
                     req.params.profileId
                 );
 
 
-            const nextSchedule =
-                await getNextSchedule(
+            if (
+                !Number.isInteger(
+                    profileId
+                )
+            ) {
+
+                return res.status(
+                    400
+                ).json({
+
+                    error:
+                        "Invalid profile ID",
+
+                });
+
+            }
+
+
+            const nextEvent =
+                await getNextBellEvent(
                     profileId
                 );
 
 
             res.json(
-                nextSchedule
+                nextEvent
             );
+
+
         } catch (error) {
+
             console.error(
+                "Failed to get next bell event:",
                 error
             );
 
-            res.status(500).json({
+
+            res.status(
+                500
+            ).json({
+
                 error:
-                    "Failed to get next schedule",
+                    "Failed to get next bell event",
+
             });
+
         }
+
     }
 );
 
@@ -714,6 +867,9 @@ server.on("error", (error) => {
         "HTTP server error:",
         error
     );
+
+    process.exitCode = 1;
+    process.exit(1);
 });
 
 server.on("close", () => {

@@ -8,6 +8,11 @@ interface ProfilesProps {
     onEditProfile: (profile: Profile) => void;
     onDeleteProfile: (profile: Profile) => void;
     onOpenProfile: (profile: Profile) => void;
+    profileByDay: Record<number, number | null>;
+    onAssignProfile: (
+        day: number,
+        profileId: number | null
+    ) => void;
 }
 
 function getEndTime(time: string) {
@@ -73,6 +78,8 @@ export default function Profiles({
     onEditProfile,
     onDeleteProfile,
     onOpenProfile,
+    profileByDay,
+    onAssignProfile,
 }: ProfilesProps) {
     const [showCreate, setShowCreate] =
         useState(false);
@@ -503,39 +510,50 @@ export default function Profiles({
                     className="
                         mt-[16px]
                         grid
-                        grid-cols-7
+                        grid-cols-5
                         gap-[10px]
                     "
                 >
                     {[
-                        "E",
-                        "T",
-                        "K",
-                        "N",
-                        "R",
-                        "L",
-                        "P",
-                    ].map(
-                        (day) => (
-                            <div
+                        "Esmaspäev",
+                        "Teisipäev",
+                        "Kolmapäev",
+                        "Neljapäev",
+                        "Reede",
+                    ].map((dayName, index) => {
+                        const day = index + 1;
+
+                        return (
+                            <label
                                 key={day}
-                                className="
-                                    flex
-                                    h-[40px]
-                                    items-center
-                                    justify-center
-                                    rounded-[8px]
-                                    bg-[#f5f7fb]
-                                    font-['Inter']
-                                    text-[13px]
-                                    font-medium
-                                    text-[#647085]
-                                "
+                                className="flex min-w-0 flex-col gap-[6px] font-['Inter'] text-[11px] font-medium text-[#647085]"
                             >
-                                {day}
-                            </div>
-                        )
-                    )}
+                                <span className="truncate">{dayName}</span>
+                                <select
+                                    value={profileByDay[day] ?? ""}
+                                    onChange={(event) =>
+                                        onAssignProfile(
+                                            day,
+                                            event.target.value
+                                                ? Number(event.target.value)
+                                                : null
+                                        )
+                                    }
+                                    className="h-[36px] min-w-0 rounded-[8px] border-0 bg-[#f5f7fb] px-[6px] text-[11px] text-[#1b212d] outline-none"
+                                >
+                                    <option value="">Puudub</option>
+                                    {profiles.map((profile) => (
+                                        <option
+                                            key={profile.id}
+                                            value={profile.id}
+                                        >
+                                            {profile.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        );
+                    })}
                 </div>
             </section>
 

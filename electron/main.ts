@@ -1,32 +1,71 @@
 import {
     app,
     BrowserWindow,
+    ipcMain,
+    Menu,
+    Tray,
+    nativeImage,
 } from "electron";
 
 import path from "path";
+import fs from "fs";
 import { spawn } from "child_process";
 
 
 let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let isQuitting = false;
 
 let serverProcess:
     ReturnType<typeof spawn> | null = null;
+
+interface WindowsSettings {
+    openAtLogin: boolean;
+    openAsHidden: boolean;
+}
+
+function getWindowsSettingsPath() {
+    return path.join(
+        app.getPath("userData"),
+        "windows-settings.json"
+    );
+}
+
+function readHiddenSetting() {
+    try {
+        const contents = fs.readFileSync(
+            getWindowsSettingsPath(),
+            "utf8"
+        );
+
+        return (
+            JSON.parse(contents) as Partial<WindowsSettings>
+        ).openAsHidden ?? false;
+    } catch {
+        return false;
+    }
+}
 
 
 // ========================================
 // PATHS
 // ========================================
 
-const projectRoot = path.resolve(
-    __dirname,
-    ".."
-);
+const projectRoot = app.isPackaged
+    ? process.resourcesPath
+    : path.resolve(__dirname, "..");
 
 const serverPath = path.join(
     projectRoot,
     "server",
     "dist",
     "server.js"
+);
+
+const clientDistPath = path.join(
+    projectRoot,
+    "client",
+    "dist"
 );
 
 
@@ -87,6 +126,8 @@ function startServer(): Promise<void> {
 
     return new Promise(
         (resolve, reject) => {
+
+            let serverReady = false;
 
             console.log(
                 "Starting SchoolBell server..."
@@ -179,6 +220,14 @@ function startServer(): Promise<void> {
 
                     serverProcess = null;
 
+                    if (!serverReady) {
+                        reject(
+                            new Error(
+                                "SchoolBell server exited before becoming ready."
+                            )
+                        );
+                    }
+
 
                     if (
                         code !== 0
@@ -194,24 +243,23 @@ function startServer(): Promise<void> {
             );
 
 
-            waitForServer(
-                "http://localhost:3000/"
-            )
-                .then(() => {
-                    resolve();
-                })
-                .catch(
-                    (error) => {
-
+            setTimeout(() => {
+                waitForServer(
+                    "http://localhost:3000/"
+                )
+                    .then(() => {
+                        serverReady = true;
+                        resolve();
+                    })
+                    .catch((error: unknown) => {
                         console.error(
                             "Server startup timeout:",
                             error
                         );
 
                         reject(error);
-
-                    }
-                );
+                    });
+            }, 500);
 
         }
     );
@@ -242,12 +290,50 @@ function stopServer() {
     serverProcess = null;
 }
 
+ipcMain.handle(
+    "windows-settings:get",
+    (): WindowsSettings => {
+        const settings = app.getLoginItemSettings();
+
+        return {
+            openAtLogin: settings.openAtLogin,
+            openAsHidden: readHiddenSetting(),
+        };
+    }
+);
+
+ipcMain.handle(
+    "windows-settings:set",
+    (
+        _event,
+        settings: WindowsSettings
+    ): WindowsSettings => {
+        app.setLoginItemSettings({
+            openAtLogin: settings.openAtLogin,
+            args: settings.openAsHidden
+                ? ["--hidden"]
+                : [],
+        });
+
+            fs.writeFileSync(
+                getWindowsSettingsPath(),
+                JSON.stringify(settings),
+                "utf8"
+            );
+
+        return settings;
+    }
+);
+
 
 // ========================================
 // CREATE WINDOW
 // ========================================
 
 function createWindow() {
+
+    const startHidden =
+        process.argv.includes("--hidden");
 
     mainWindow =
         new BrowserWindow({
@@ -259,6 +345,8 @@ function createWindow() {
             minWidth: 1200,
 
             minHeight: 700,
+
+            show: !startHidden,
 
 
             webPreferences: {
@@ -278,9 +366,24 @@ function createWindow() {
         });
 
 
-    mainWindow.loadURL(
-        "http://localhost:5173"
-    );
+    if (app.isPackaged) {
+        void mainWindow.loadFile(
+            path.join(
+                clientDistPath,
+                "index.html"
+            )
+        );
+    } else {
+        void mainWindow.loadURL(
+            "http://localhost:5173"
+        );
+    }
+
+    mainWindow.once("ready-to-show", () => {
+        if (!startHidden) {
+            mainWindow?.show();
+        }
+    });
 
 
     mainWindow.on(
@@ -291,6 +394,50 @@ function createWindow() {
 
         }
     );
+
+    mainWindow.on("close", (event) => {
+        if (isQuitting) {
+            return;
+        }
+
+        event.preventDefault();
+        mainWindow?.hide();
+    });
+}
+
+function createTray() {
+    if (tray) {
+        return;
+    }
+
+    const icon = nativeImage.createFromPath(
+        path.join(
+            projectRoot,
+            "client",
+            "public",
+            "favicon.svg"
+        )
+    );
+
+    tray = new Tray(icon);
+    tray.setToolTip("SchoolBell");
+    tray.setContextMenu(
+        Menu.buildFromTemplate([
+            {
+                label: "Ava SchoolBell",
+                click: () => mainWindow?.show(),
+            },
+            {
+                label: "Välju",
+                click: () => {
+                    isQuitting = true;
+                    app.quit();
+                },
+            },
+        ])
+    );
+
+    tray.on("double-click", () => mainWindow?.show());
 }
 
 
@@ -312,6 +459,7 @@ app.whenReady().then(
 
 
             createWindow();
+            createTray();
 
         } catch (error) {
 
@@ -378,6 +526,8 @@ app.on(
 app.on(
     "before-quit",
     () => {
+
+        isQuitting = true;
 
         stopServer();
 

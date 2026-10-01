@@ -16,6 +16,18 @@
 **/dist/
 **/build/
 **/coverage/
+/dist-electron/
+/release/
+*.blockmap
+
+# Runtime-uploaded sound files
+/server/sounds/*
+!/server/sounds/.gitkeep
+
+# Keep the Windows installer icon under version control
+!/build/
+/build/*
+!/build/icon.ico
 
 # Logs and temporary files
 npm-debug.log*

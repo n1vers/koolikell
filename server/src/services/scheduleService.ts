@@ -1,24 +1,37 @@
 import "dotenv/config";
 
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-import { PrismaClient } from "@prisma/client";
+import {
+    PrismaBetterSqlite3,
+} from "@prisma/adapter-better-sqlite3";
+
+import {
+    PrismaClient,
+} from "@prisma/client";
+
 
 const databaseUrl =
     process.env.DATABASE_URL ??
     "file:./schoolbell.db";
 
-const adapter = new PrismaBetterSqlite3({
-    url: databaseUrl.replace(/^file:/, ""),
-});
 
-const prisma = new PrismaClient({
-    adapter,
-});
+const adapter =
+    new PrismaBetterSqlite3({
+        url: databaseUrl.replace(
+            /^file:/,
+            ""
+        ),
+    });
 
 
-// =========================================
-// GET ALL SCHEDULES FOR PROFILE
-// =========================================
+const prisma =
+    new PrismaClient({
+        adapter,
+    });
+
+
+// ============================================
+// GET SCHEDULES
+// ============================================
 
 export async function getSchedules(
     profileId: number
@@ -30,6 +43,7 @@ export async function getSchedules(
 
         include: {
             sound: true,
+            preBellSound: true,
         },
 
         orderBy: [
@@ -45,68 +59,67 @@ export async function getSchedules(
 }
 
 
-// =========================================
-// GET SCHEDULES FOR ONE DAY
-// =========================================
-
-export async function getSchedulesForDay(
-    profileId: number,
-    dayOfWeek: number
-) {
-    return prisma.schedule.findMany({
-        where: {
-            profileId,
-            dayOfWeek,
-            enabled: true,
-        },
-
-        include: {
-            sound: true,
-        },
-
-        orderBy: {
-            time: "asc",
-        },
-    });
-}
-
-
-// =========================================
+// ============================================
 // CREATE SCHEDULE
-// =========================================
+// ============================================
 
 export async function createSchedule(
     profileId: number,
     dayOfWeek: number,
     time: string,
-    soundId: number | null = null
+    type: string,
+    preBellEnabled: boolean,
+    soundId: number | null = null,
+    preBellSoundId: number | null = null
 ) {
     return prisma.schedule.create({
         data: {
             profileId,
+
             dayOfWeek,
+
             time,
-            soundId,
+
+            type,
+
+            // Предзвон разрешён
+            // только для начала урока
+            preBellEnabled:
+                type === "LESSON_START"
+                    ? preBellEnabled
+                    : false,
+
+            // Новый звонок включён
             enabled: true,
+
+            soundId,
+            preBellSoundId:
+                type === "LESSON_START"
+                    ? preBellSoundId
+                    : null,
         },
 
         include: {
             sound: true,
+            preBellSound: true,
         },
     });
 }
 
 
-// =========================================
+// ============================================
 // UPDATE SCHEDULE
-// =========================================
+// ============================================
 
 export async function updateSchedule(
     id: number,
     dayOfWeek: number,
     time: string,
+    type: string,
     enabled: boolean,
-    soundId: number | null
+    preBellEnabled: boolean,
+    soundId: number | null,
+    preBellSoundId: number | null
 ) {
     return prisma.schedule.update({
         where: {
@@ -115,9 +128,25 @@ export async function updateSchedule(
 
         data: {
             dayOfWeek,
+
             time,
+
+            type,
+
             enabled,
+
+            // Если это конец урока —
+            // предзвона быть не может.
+            preBellEnabled:
+                type === "LESSON_START"
+                    ? preBellEnabled
+                    : false,
+
             soundId,
+            preBellSoundId:
+                type === "LESSON_START"
+                    ? preBellSoundId
+                    : null,
         },
 
         include: {
@@ -127,9 +156,9 @@ export async function updateSchedule(
 }
 
 
-// =========================================
+// ============================================
 // DELETE SCHEDULE
-// =========================================
+// ============================================
 
 export async function deleteSchedule(
     id: number
