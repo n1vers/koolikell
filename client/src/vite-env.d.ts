@@ -2,6 +2,14 @@
 
 interface Window {
     electronAPI?: {
+        getNtpTime: () => Promise<{
+            server: string;
+            offsetMs: number;
+            checkedAt: string;
+        }>;
+
+        openSoundsFolder: () => Promise<string>;
+
         getWindowsSettings: () => Promise<{
             openAtLogin: boolean;
             openAsHidden: boolean;

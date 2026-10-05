@@ -2,6 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 electron_1.contextBridge.exposeInMainWorld("electronAPI", {
+    getNtpTime: () => electron_1.ipcRenderer.invoke("time:ntp"),
+    openSoundsFolder: () => electron_1.ipcRenderer.invoke("sounds-folder:open"),
     getWindowsSettings: () => electron_1.ipcRenderer.invoke("windows-settings:get"),
     setWindowsSettings: (settings) => electron_1.ipcRenderer.invoke("windows-settings:set", settings),
     onBell: (callback) => {

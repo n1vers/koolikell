@@ -36,9 +36,17 @@ export async function updateProfile(id: number, name: string) {
 }
 
 export async function deleteProfile(id: number) {
-    return prisma.profile.delete({
-        where: {
-            id,
-        },
+    return prisma.$transaction(async (transaction) => {
+        await transaction.schedule.deleteMany({
+            where: {
+                profileId: id,
+            },
+        });
+
+        return transaction.profile.delete({
+            where: {
+                id,
+            },
+        });
     });
 }

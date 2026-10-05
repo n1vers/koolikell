@@ -127,7 +127,8 @@ function minutesToTime(
 // ============================================
 
 export async function getNextBellEvent(
-    profileId: number
+    profileId: number,
+    preBellOffsetMinutes = 2
 ): Promise<BellEvent | null> {
 
     const now =
@@ -308,7 +309,7 @@ export async function getNextBellEvent(
 
 
             const preBellMinutes =
-                mainMinutes - 2;
+                mainMinutes - preBellOffsetMinutes;
 
 
             events.push({

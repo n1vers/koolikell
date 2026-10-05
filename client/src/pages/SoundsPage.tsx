@@ -100,6 +100,25 @@ export default function SoundsPage() {
         }
     }
 
+    async function openSoundsFolder() {
+        if (!window.electronAPI) {
+            setUploadError(
+                "See funktsioon töötab ainult Windowsi rakenduses."
+            );
+            return;
+        }
+
+        try {
+            await window.electronAPI.openSoundsFolder();
+        } catch (error) {
+            setUploadError(
+                error instanceof Error
+                    ? error.message
+                    : "Helide kausta avamine ebaõnnestus."
+            );
+        }
+    }
+
 
     // ============================================
     // FILE PICKER
@@ -514,6 +533,10 @@ export default function SoundsPage() {
             <div
                 className="
                     mb-[30px]
+                    flex
+                    items-start
+                    justify-between
+                    gap-[24px]
                     w-full
                     max-w-[1040px]
                 "
@@ -540,6 +563,14 @@ export default function SoundsPage() {
                     Koolikellade helide
                     haldamine
                 </p>
+
+                <button
+                    type="button"
+                    onClick={() => void openSoundsFolder()}
+                    className="rounded-[9px] border border-[#d9dee8] bg-white px-[14px] py-[10px] text-[13px] font-medium text-[#374151] transition hover:border-[#529eff] hover:text-[#438fea]"
+                >
+                    Ava helide kaust
+                </button>
 
             </div>
 

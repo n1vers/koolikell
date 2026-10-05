@@ -1,6 +1,14 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("electronAPI", {
+    getNtpTime: () =>
+        ipcRenderer.invoke("time:ntp"),
+
+    openSoundsFolder: () =>
+        ipcRenderer.invoke(
+            "sounds-folder:open"
+        ),
+
     getWindowsSettings: () =>
         ipcRenderer.invoke(
             "windows-settings:get"

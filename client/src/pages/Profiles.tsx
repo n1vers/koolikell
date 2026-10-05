@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Profile, Schedule } from "../types";
+import DateProfileCalendar from "../components/DateProfileCalendar";
 
 interface ProfilesProps {
     profiles: Profile[];
@@ -9,8 +10,13 @@ interface ProfilesProps {
     onDeleteProfile: (profile: Profile) => void;
     onOpenProfile: (profile: Profile) => void;
     profileByDay: Record<number, number | null>;
+    profileByDate: Record<string, number | null>;
     onAssignProfile: (
         day: number,
+        profileId: number | null
+    ) => void;
+    onAssignDate: (
+        date: string,
         profileId: number | null
     ) => void;
 }
@@ -80,6 +86,8 @@ export default function Profiles({
     onOpenProfile,
     profileByDay,
     onAssignProfile,
+    profileByDate,
+    onAssignDate,
 }: ProfilesProps) {
     const [showCreate, setShowCreate] =
         useState(false);
@@ -397,7 +405,9 @@ export default function Profiles({
                                         >
                                             <button
                                                 type="button"
-                                                onClick={() => {
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+
                                                     setMenuId(
                                                         null
                                                     );
@@ -424,7 +434,9 @@ export default function Profiles({
 
                                             <button
                                                 type="button"
-                                                onClick={() => {
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+
                                                     setMenuId(
                                                         null
                                                     );
@@ -476,6 +488,12 @@ export default function Profiles({
                     )}
                 </div>
             </section>
+
+            <DateProfileCalendar
+                profiles={profiles}
+                assignments={profileByDate}
+                onAssignDate={onAssignDate}
+            />
 
 
             {/* ================================= */}

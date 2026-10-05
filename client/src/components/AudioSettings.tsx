@@ -238,7 +238,7 @@ export default function AudioSettings() {
 
             {/* REFRESH */}
 
-            <button
+            {/* <button
                 type="button"
                 onClick={
                     loadDevices
@@ -255,7 +255,7 @@ export default function AudioSettings() {
                 "
             >
                 Värskenda seadmeid
-            </button>
+            </button> */}
 
         </div>
     );

@@ -1,10 +1,12 @@
 import { playBell } from "./bellAudio";
+import { writeAppLog } from "./logService";
 
 const API_URL = "http://localhost:3000";
 
 let timer: ReturnType<typeof setInterval> | null = null;
 
 let lastEventKey = "";
+let lastProfileSelectionKey = "";
 
 
 /**
@@ -21,10 +23,50 @@ async function getNextBell() {
     const assignments = JSON.parse(
         localStorage.getItem("schoolbell-profile-by-day") ?? "{}"
     ) as Record<string, number>;
-    const profileId = assignments[String(day)] ?? 1;
+    const date = new Date();
+    const dateKey = [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, "0"),
+        String(date.getDate()).padStart(2, "0"),
+    ].join("-");
+    const dateAssignments = JSON.parse(
+        localStorage.getItem("schoolbell-profile-by-date") ?? "{}"
+    ) as Record<string, number>;
+    const dateProfileId = Number(dateAssignments[dateKey]);
+    const weeklyProfileId = Number(assignments[String(day)]);
+    const profileId = Number.isInteger(dateProfileId) && dateProfileId > 0
+        ? dateProfileId
+        : Number.isInteger(weeklyProfileId) && weeklyProfileId > 0
+            ? weeklyProfileId
+            : null;
+
+    if (profileId === null) {
+        writeAppLog(
+            "warn",
+            `Profiili pole määratud: ${dateKey}`
+        );
+        return null;
+    }
+
+    const profileSelectionKey = `${dateKey}:${profileId}`;
+    if (profileSelectionKey !== lastProfileSelectionKey) {
+        lastProfileSelectionKey = profileSelectionKey;
+        writeAppLog(
+            "info",
+            `Kasutusel profiil ${profileId}`,
+            dateAssignments[dateKey] !== undefined
+                ? "Kalendri erand"
+                : "Nädala ajakava"
+        );
+    }
+    const preBellMinutes = Number(
+        localStorage.getItem("schoolbell-pre-bell-minutes") ?? 2
+    );
 
     const response = await fetch(
-        `${API_URL}/api/profiles/${profileId}/next-event`
+        `${API_URL}/api/profiles/${profileId}/next-event?preBellMinutes=${encodeURIComponent(
+            String(preBellMinutes)
+        )}`
     );
 
     if (!response.ok) {
@@ -155,6 +197,12 @@ async function checkBell() {
         lastEventKey =
             eventKey;
 
+        writeAppLog(
+            "info",
+            `Kell ${event.eventType} ${event.eventTime}`,
+            `Profiil ${event.profileId}`
+        );
+
 
         console.log(
             "[BELL]",
@@ -194,10 +242,7 @@ async function checkBell() {
 
     } catch (error) {
 
-        console.error(
-            "[BELL] Scheduler error:",
-            error
-        );
+        writeAppLog("error", "Scheduler error", error);
 
     }
 }

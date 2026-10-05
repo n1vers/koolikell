@@ -783,7 +783,16 @@ app.get(
 
             const nextEvent =
                 await getNextBellEvent(
-                    profileId
+                    profileId,
+                    Math.max(
+                        0,
+                        Math.min(
+                            60,
+                            Number(
+                                req.query.preBellMinutes ?? 2
+                            ) || 2
+                        )
+                    )
                 );
 
 
@@ -831,7 +840,16 @@ app.get(
 
             const nextEvent =
                 await getNextBellEvent(
-                    profileId
+                    profileId,
+                    Math.max(
+                        0,
+                        Math.min(
+                            60,
+                            Number(
+                                req.query.preBellMinutes ?? 2
+                            ) || 2
+                        )
+                    )
                 );
 
 

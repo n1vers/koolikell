@@ -18,7 +18,6 @@ interface ScheduleEditorProps {
 
     onAddSchedule: (
         time: string,
-        type: "LESSON_START" | "LESSON_END",
         preBellEnabled: boolean,
         soundId: number | null,
         preBellSoundId: number | null
@@ -50,20 +49,40 @@ export default function ScheduleEditor({
     const [newTime, setNewTime] =
         useState("08:00");
 
-    const [newType, setNewType] =
-        useState<
-            "LESSON_START" |
-            "LESSON_END"
-        >("LESSON_START");
-
     const [newPreBellEnabled, setNewPreBellEnabled] =
         useState(true);
 
     const [newSoundId, setNewSoundId] =
-        useState<number | null>(null);
+        useState<number | null>(() => {
+            const value = localStorage.getItem(
+                "schoolbell-default-sound-id"
+            );
+
+            return value === null ? null : Number(value);
+        });
 
     const [newPreBellSoundId, setNewPreBellSoundId] =
-        useState<number | null>(null);
+        useState<number | null>(() => {
+            const value = localStorage.getItem(
+                "schoolbell-default-pre-bell-sound-id"
+            );
+
+            return value === null ? null : Number(value);
+        });
+
+    function rememberSound(
+        key: string,
+        value: number | null,
+        setter: (value: number | null) => void
+    ) {
+        setter(value);
+
+        if (value === null) {
+            localStorage.removeItem(key);
+        } else {
+            localStorage.setItem(key, String(value));
+        }
+    }
 
 
     // =========================================
@@ -76,19 +95,13 @@ export default function ScheduleEditor({
 
             await onAddSchedule(
                 newTime,
-                newType,
-                newType === "LESSON_START"
-                    ? newPreBellEnabled
-                    : false,
+                newPreBellEnabled,
                 newSoundId,
                 newPreBellSoundId
             );
 
             setNewTime("08:00");
-            setNewType("LESSON_START");
             setNewPreBellEnabled(true);
-            setNewSoundId(null);
-            setNewPreBellSoundId(null);
 
         } catch (error) {
 
@@ -169,37 +182,6 @@ export default function ScheduleEditor({
 
 
     // =========================================
-    // TYPE
-    // =========================================
-
-    async function handleTypeChange(
-        schedule: Schedule,
-        type:
-            | "LESSON_START"
-            | "LESSON_END"
-    ) {
-
-        await updateSchedule(
-            schedule,
-            {
-                type,
-
-                /*
-                 * Предзвон возможен
-                 * только перед началом.
-                 */
-
-                preBellEnabled:
-                    type === "LESSON_START"
-                        ? schedule.preBellEnabled
-                        : false,
-            }
-        );
-
-    }
-
-
-    // =========================================
     // PRE BELL
     // =========================================
 
@@ -207,18 +189,6 @@ export default function ScheduleEditor({
         schedule: Schedule,
         enabled: boolean
     ) {
-
-        /*
-         * На всякий случай дополнительно
-         * проверяем тип.
-         */
-
-        if (
-            schedule.type !==
-            "LESSON_START"
-        ) {
-            return;
-        }
 
         await updateSchedule(
             schedule,
@@ -297,6 +267,8 @@ export default function ScheduleEditor({
         <main
             className="
                 ml-[240px]
+                w-[calc(100%_-_240px)]
+                overflow-x-hidden
                 min-h-screen
                 bg-[#f5f7fb]
                 px-[40px]
@@ -392,7 +364,7 @@ export default function ScheduleEditor({
             <div
                 className="
                     grid
-                    grid-cols-[45px_90px_130px_100px_100px_1fr_40px]
+                    grid-cols-[40px_90px_minmax(0,140px)_minmax(0,110px)_minmax(0,1fr)_36px]
                     items-center
                     px-[18px]
                     text-[10px]
@@ -406,8 +378,6 @@ export default function ScheduleEditor({
                 <span>№</span>
 
                 <span>Aeg</span>
-
-                <span>Tüüp</span>
 
                 <span>Predbell</span>
 
@@ -441,7 +411,8 @@ export default function ScheduleEditor({
                             }
                             className="
                                 grid
-                                grid-cols-[45px_90px_130px_100px_100px_1fr_40px]
+                                grid-cols-[40px_90px_minmax(0,140px)_minmax(0,110px)_minmax(0,1fr)_36px]
+                                min-w-0
                                 min-h-[60px]
                                 items-center
                                 rounded-[10px]
@@ -498,57 +469,11 @@ export default function ScheduleEditor({
                             />
 
 
-                            {/* TYPE */}
-
-                            <select
-                                value={
-                                    schedule.type
-                                }
-                                onChange={(
-                                    event
-                                ) =>
-                                    handleTypeChange(
-                                        schedule,
-                                        event
-                                            .target
-                                            .value as
-                                            | "LESSON_START"
-                                            | "LESSON_END"
-                                    )
-                                }
-                                className="
-                                    h-[34px]
-                                    w-[115px]
-                                    rounded-[7px]
-                                    border
-                                    border-[#e2e7ef]
-                                    bg-white
-                                    px-[8px]
-                                    text-[12px]
-                                    text-[#394352]
-                                    outline-none
-                                    focus:border-[#5798f5]
-                                "
-                            >
-
-                                <option value="LESSON_START">
-                                    Algus
-                                </option>
-
-                                <option value="LESSON_END">
-                                    Lõpp
-                                </option>
-
-                            </select>
-
-
                             {/* PRE BELL */}
 
                             <div>
 
-                                {schedule.type ===
-                                    "LESSON_START" ? (
-                                    <>
+                                <>
                                         <label
                                             className="
                                                 flex
@@ -585,7 +510,7 @@ export default function ScheduleEditor({
                                                 text-[#697589]
                                             "
                                         >
-                                            -2 min
+                                            Predzvon
                                         </span>
 
                                         </label>
@@ -607,20 +532,7 @@ export default function ScheduleEditor({
                                                 </option>
                                             ))}
                                         </select>
-                                    </>
-
-                                ) : (
-
-                                    <span
-                                        className="
-                                            text-[11px]
-                                            text-[#b1b8c4]
-                                        "
-                                    >
-                                        —
-                                    </span>
-
-                                )}
+                                </>
 
                             </div>
 
@@ -689,7 +601,8 @@ export default function ScheduleEditor({
                                     )
                                 }
                                 className="
-                                    max-w-[300px]
+                                    min-w-0
+                                    max-w-full
                                     border-none
                                     bg-transparent
                                     text-[12px]
@@ -816,68 +729,9 @@ export default function ScheduleEditor({
                     />
 
 
-                    {/* TYPE */}
-
-                    <select
-                        value={
-                            newType
-                        }
-                        onChange={(event) => {
-
-                            const value =
-                                event.target.value as
-                                    | "LESSON_START"
-                                    | "LESSON_END";
-
-                            setNewType(
-                                value
-                            );
-
-                            if (
-                                value ===
-                                "LESSON_END"
-                            ) {
-                                setNewPreBellEnabled(
-                                    false
-                                );
-                            } else {
-                                setNewPreBellEnabled(
-                                    true
-                                );
-                            }
-
-                        }}
-                        className="
-                            h-[40px]
-                            rounded-[8px]
-                            border
-                            border-[#e2e7ef]
-                            bg-white
-                            px-[12px]
-                            text-[13px]
-                            text-[#303846]
-                            outline-none
-                            focus:border-[#5798f5]
-                        "
-                    >
-
-                        <option value="LESSON_START">
-                            Algus
-                        </option>
-
-                        <option value="LESSON_END">
-                            Lõpp
-                        </option>
-
-                    </select>
-
-
                     {/* PRE BELL */}
 
-                    {newType ===
-                        "LESSON_START" && (
-
-                        <label
+                    <label
                             className="
                                 flex
                                 h-[40px]
@@ -914,12 +768,10 @@ export default function ScheduleEditor({
                                     text-[#596577]
                                 "
                             >
-                                -2 min
+                                Predzvon
                             </span>
 
-                        </label>
-
-                    )}
+                    </label>
 
 
                     {/* SOUND */}
@@ -930,7 +782,8 @@ export default function ScheduleEditor({
                             ""
                         }
                         onChange={(event) =>
-                            setNewSoundId(
+                            rememberSound(
+                                "schoolbell-default-sound-id",
                                 event.target.value ===
                                     ""
                                     ? null
@@ -938,7 +791,8 @@ export default function ScheduleEditor({
                                         event
                                             .target
                                             .value
-                                    )
+                                    ),
+                                setNewSoundId
                             )
                         }
                         className="
@@ -980,14 +834,15 @@ export default function ScheduleEditor({
 
                     </select>
 
-                    {newType === "LESSON_START" && (
-                        <select
+                    <select
                             value={newPreBellSoundId ?? ""}
                             onChange={(event) =>
-                                setNewPreBellSoundId(
+                                rememberSound(
+                                    "schoolbell-default-pre-bell-sound-id",
                                     event.target.value === ""
                                         ? null
-                                        : Number(event.target.value)
+                                        : Number(event.target.value),
+                                    setNewPreBellSoundId
                                 )
                             }
                             className="h-[40px] min-w-[200px] rounded-[8px] border border-[#e2e7ef] bg-white px-[12px] text-[13px] text-[#303846] outline-none focus:border-[#5798f5]"
@@ -998,8 +853,7 @@ export default function ScheduleEditor({
                                     {sound.name}
                                 </option>
                             ))}
-                        </select>
-                    )}
+                    </select>
 
 
                     {/* ADD BUTTON */}

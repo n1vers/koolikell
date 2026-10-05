@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import AudioSettings from "./components/AudioSettings";
+import AppLogs from "./components/AppLogs";
 import Dashboard from "./pages/Dashboard";
 import Sidebar from "./components/Sidebar";
 import Profiles from "./pages/Profiles";
@@ -15,6 +16,7 @@ import {
     startBellScheduler,
     stopBellScheduler,
 } from "./services/bellScheduler";
+import { writeAppLog } from "./services/logService";
 
 import {
     getProfiles,
@@ -40,6 +42,14 @@ interface WindowsSettings {
 }
 
 const WEEK_DAYS = [1, 2, 3, 4, 5, 6, 7];
+
+function getDateKey(date: Date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+
+    return `${year}-${month}-${day}`;
+}
 
 function getTodayNumber() {
     const day = new Date().getDay();
@@ -74,6 +84,9 @@ export default function App() {
 
     const [profileByDay, setProfileByDay] =
         useState<Record<number, number | null>>({});
+
+    const [profileByDate, setProfileByDate] =
+        useState<Record<string, number | null>>({});
 
     const [todayNumber, setTodayNumber] =
         useState(getTodayNumber);
@@ -110,6 +123,15 @@ export default function App() {
                 ) !== "false"
         );
 
+    const [preBellMinutes, setPreBellMinutes] =
+        useState(() =>
+            Number(
+                localStorage.getItem(
+                    "schoolbell-pre-bell-minutes"
+                ) ?? 2
+            )
+        );
+
     const [windowsSettings, setWindowsSettings] =
         useState<WindowsSettings>({
             openAtLogin: false,
@@ -124,6 +146,27 @@ export default function App() {
     useEffect(() => {
         loadData();
 
+    }, []);
+
+    useEffect(() => {
+        const handleError = (event: ErrorEvent) => {
+            writeAppLog("error", event.message, event.error);
+        };
+        const handleRejection = (event: PromiseRejectionEvent) => {
+            writeAppLog(
+                "error",
+                "Unhandled promise rejection",
+                event.reason
+            );
+        };
+
+        window.addEventListener("error", handleError);
+        window.addEventListener("unhandledrejection", handleRejection);
+
+        return () => {
+            window.removeEventListener("error", handleError);
+            window.removeEventListener("unhandledrejection", handleRejection);
+        };
     }, []);
 
     useEffect(() => {
@@ -147,6 +190,16 @@ export default function App() {
 
             return next;
         });
+    }
+
+    function handlePreBellMinutesChange(value: number) {
+        const next = Math.max(0, Math.min(60, value));
+
+        setPreBellMinutes(next);
+        localStorage.setItem(
+            "schoolbell-pre-bell-minutes",
+            String(next)
+        );
     }
 
     useEffect(() => {
@@ -223,9 +276,19 @@ export default function App() {
     }, [currentPage]);
 
     useEffect(() => {
+        const dateProfileId =
+            profileByDate[getDateKey(new Date())];
+        const hasDateProfile =
+            dateProfileId !== null &&
+            dateProfileId !== undefined &&
+            profiles.some(
+                (profile) => profile.id === dateProfileId
+            );
         const profileId =
             todayNumber <= 5
-                ? profileByDay[todayNumber] ?? profiles[0]?.id
+                ? (hasDateProfile ? dateProfileId : null) ??
+                    profileByDay[todayNumber] ??
+                    profiles[0]?.id
                 : null;
 
         setSchedules(
@@ -234,6 +297,7 @@ export default function App() {
                 : []
         );
     }, [
+        profileByDate,
         profileByDay,
         profiles,
         schedulesByProfile,
@@ -362,6 +426,20 @@ useEffect(() => {
 
             setProfileByDay(assignments);
 
+            localStorage.setItem(
+                "schoolbell-profile-by-day",
+                JSON.stringify(assignments)
+            );
+
+            const savedDateAssignments =
+                JSON.parse(
+                    localStorage.getItem(
+                        "schoolbell-profile-by-date"
+                    ) ?? "{}"
+                ) as Record<string, number>;
+
+            setProfileByDate(savedDateAssignments);
+
 
             // -----------------------------
             // Sounds
@@ -428,6 +506,11 @@ useEffect(() => {
             setError(
                 "Andmete laadimine ebaõnnestus"
             );
+            writeAppLog(
+                "error",
+                "Andmete laadimine ebaõnnestus",
+                error
+            );
         } finally {
             setLoading(false);
         }
@@ -445,6 +528,29 @@ useEffect(() => {
 
             localStorage.setItem(
                 "schoolbell-profile-by-day",
+                JSON.stringify(next)
+            );
+
+            return next;
+        });
+    }
+
+    function handleAssignDate(
+        date: string,
+        profileId: number | null
+    ) {
+        setProfileByDate((current) => {
+            const next = {
+                ...current,
+                [date]: profileId,
+            };
+
+            if (profileId === null) {
+                delete next[date];
+            }
+
+            localStorage.setItem(
+                "schoolbell-profile-by-date",
                 JSON.stringify(next)
             );
 
@@ -623,7 +729,6 @@ useEffect(() => {
 
     async function handleAddSchedule(
     time: string,
-    type: "LESSON_START" | "LESSON_END",
     preBellEnabled: boolean,
     soundId: number | null,
     preBellSoundId: number | null
@@ -640,7 +745,7 @@ useEffect(() => {
                 selectedProfile.id,
                 dayOfWeek,
                 time,
-                type,
+                "LESSON_START",
                 preBellEnabled,
                 soundId,
                 preBellSoundId
@@ -698,7 +803,7 @@ useEffect(() => {
 
                 schedule.time,
 
-                schedule.type,
+                "LESSON_START",
 
                 schedule.enabled,
 
@@ -828,6 +933,8 @@ useEffect(() => {
          */
 
         await loadData();
+        setSelectedProfile(null);
+        setCurrentPage("profiles");
     }
 
 
@@ -1032,6 +1139,14 @@ useEffect(() => {
                     onAssignProfile={
                         handleAssignProfile
                     }
+
+                    profileByDate={
+                        profileByDate
+                    }
+
+                    onAssignDate={
+                        handleAssignDate
+                    }
                 />
             )}
 
@@ -1119,6 +1234,30 @@ useEffect(() => {
                                 Vali heliväljund ja helitugevus.
                             </p>
                             <AudioSettings />
+
+                            <div className="mt-[24px] border-t border-[#eef1f5] pt-[20px]">
+                                <label className="block text-[14px] font-medium text-[#1f2937]">
+                                    Predzvoni aeg
+                                </label>
+                                <p className="mt-[5px] text-[13px] leading-[20px] text-[#7b8494]">
+                                    Mitu minutit enne kella predzvon mängib.
+                                </p>
+                                <div className="mt-[10px] flex items-center gap-[8px]">
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max="60"
+                                        value={preBellMinutes}
+                                        onChange={(event) =>
+                                            handlePreBellMinutesChange(
+                                                Number(event.target.value)
+                                            )
+                                        }
+                                        className="h-[38px] w-[90px] rounded-[8px] border border-[#d9dee8] px-[10px] text-[14px] text-[#1f2937] outline-none focus:border-[#529eff]"
+                                    />
+                                    <span className="text-[13px] text-[#647085]">min</span>
+                                </div>
+                            </div>
                         </section>
 
                         <section className="rounded-[14px] border border-[#e5e9f0] bg-white p-[24px] shadow-[0_8px_24px_rgba(27,33,45,0.04)]">
@@ -1174,6 +1313,7 @@ useEffect(() => {
                             </label>
                         </section>
                     </div>
+                    <AppLogs />
                 </main>
             )}
         </div>

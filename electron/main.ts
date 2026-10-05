@@ -5,10 +5,12 @@ import {
     Menu,
     Tray,
     nativeImage,
+    shell,
 } from "electron";
 
 import path from "path";
 import fs from "fs";
+import dgram from "dgram";
 import { spawn } from "child_process";
 
 
@@ -22,6 +24,72 @@ let serverProcess:
 interface WindowsSettings {
     openAtLogin: boolean;
     openAsHidden: boolean;
+}
+
+interface NtpResult {
+    server: string;
+    offsetMs: number;
+    checkedAt: string;
+}
+
+function queryNtpServer(
+    server: string
+): Promise<NtpResult> {
+    return new Promise((resolve, reject) => {
+        const socket = dgram.createSocket("udp4");
+        const startedAt = Date.now();
+        const packet = Buffer.alloc(48);
+        packet[0] = 0x1b;
+
+        const finish = () => {
+            socket.close();
+        };
+
+        const timeout = setTimeout(() => {
+            finish();
+            reject(new Error("NTP timeout"));
+        }, 4000);
+
+        socket.once("error", (error) => {
+            clearTimeout(timeout);
+            finish();
+            reject(error);
+        });
+
+        socket.once("message", (message) => {
+            clearTimeout(timeout);
+
+            if (message.length < 48) {
+                finish();
+                reject(new Error("Invalid NTP response"));
+                return;
+            }
+
+            const seconds = message.readUInt32BE(40);
+            const fraction = message.readUInt32BE(44);
+            const serverTime =
+                (seconds - 2208988800) * 1000 +
+                (fraction / 0x100000000) * 1000;
+            const receivedAt = Date.now();
+            const offsetMs =
+                serverTime - (startedAt + receivedAt) / 2;
+
+            finish();
+            resolve({
+                server,
+                offsetMs,
+                checkedAt: new Date().toISOString(),
+            });
+        });
+
+        socket.send(packet, 123, server, (error) => {
+            if (error) {
+                clearTimeout(timeout);
+                finish();
+                reject(error);
+            }
+        });
+    });
 }
 
 function getWindowsSettingsPath() {
@@ -532,4 +600,34 @@ app.on(
         stopServer();
 
     }
+);
+
+ipcMain.handle(
+    "sounds-folder:open",
+    async () => {
+        const soundsPath = path.join(
+            projectRoot,
+            "server",
+            "sounds"
+        );
+
+        fs.mkdirSync(soundsPath, {
+            recursive: true,
+        });
+
+        const error = await shell.openPath(
+            soundsPath
+        );
+
+        if (error) {
+            throw new Error(error);
+        }
+
+        return soundsPath;
+    }
+);
+
+ipcMain.handle(
+    "time:ntp",
+    () => queryNtpServer("ntp1.eenet.ee")
 );

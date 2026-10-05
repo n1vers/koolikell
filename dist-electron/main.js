@@ -6,11 +6,59 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
+const dgram_1 = __importDefault(require("dgram"));
 const child_process_1 = require("child_process");
 let mainWindow = null;
 let tray = null;
 let isQuitting = false;
 let serverProcess = null;
+function queryNtpServer(server) {
+    return new Promise((resolve, reject) => {
+        const socket = dgram_1.default.createSocket("udp4");
+        const startedAt = Date.now();
+        const packet = Buffer.alloc(48);
+        packet[0] = 0x1b;
+        const finish = () => {
+            socket.close();
+        };
+        const timeout = setTimeout(() => {
+            finish();
+            reject(new Error("NTP timeout"));
+        }, 4000);
+        socket.once("error", (error) => {
+            clearTimeout(timeout);
+            finish();
+            reject(error);
+        });
+        socket.once("message", (message) => {
+            clearTimeout(timeout);
+            if (message.length < 48) {
+                finish();
+                reject(new Error("Invalid NTP response"));
+                return;
+            }
+            const seconds = message.readUInt32BE(40);
+            const fraction = message.readUInt32BE(44);
+            const serverTime = (seconds - 2208988800) * 1000 +
+                (fraction / 0x100000000) * 1000;
+            const receivedAt = Date.now();
+            const offsetMs = serverTime - (startedAt + receivedAt) / 2;
+            finish();
+            resolve({
+                server,
+                offsetMs,
+                checkedAt: new Date().toISOString(),
+            });
+        });
+        socket.send(packet, 123, server, (error) => {
+            if (error) {
+                clearTimeout(timeout);
+                finish();
+                reject(error);
+            }
+        });
+    });
+}
 function getWindowsSettingsPath() {
     return path_1.default.join(electron_1.app.getPath("userData"), "windows-settings.json");
 }
@@ -236,3 +284,15 @@ electron_1.app.on("before-quit", () => {
     isQuitting = true;
     stopServer();
 });
+electron_1.ipcMain.handle("sounds-folder:open", async () => {
+    const soundsPath = path_1.default.join(projectRoot, "server", "sounds");
+    fs_1.default.mkdirSync(soundsPath, {
+        recursive: true,
+    });
+    const error = await electron_1.shell.openPath(soundsPath);
+    if (error) {
+        throw new Error(error);
+    }
+    return soundsPath;
+});
+electron_1.ipcMain.handle("time:ntp", () => queryNtpServer("ntp1.eenet.ee"));

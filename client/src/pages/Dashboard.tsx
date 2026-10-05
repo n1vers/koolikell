@@ -77,6 +77,31 @@ export default function Dashboard({
     const [now, setNow] =
         useState(() => new Date());
 
+    const [ntpOffsetMs, setNtpOffsetMs] =
+        useState<number | null>(null);
+
+    useEffect(() => {
+        if (!window.electronAPI?.getNtpTime) {
+            return;
+        }
+
+        const syncTime = async () => {
+            try {
+                const result =
+                    await window.electronAPI?.getNtpTime();
+
+                setNtpOffsetMs(result?.offsetMs ?? null);
+            } catch {
+                setNtpOffsetMs(null);
+            }
+        };
+
+        void syncTime();
+        const timer = window.setInterval(syncTime, 300_000);
+
+        return () => window.clearInterval(timer);
+    }, []);
+
     useEffect(() => {
         const timer = window.setInterval(() => {
             setNow(new Date());
@@ -109,6 +134,14 @@ export default function Dashboard({
             second: "2-digit",
         }
     );
+
+    const ntpDifference =
+        ntpOffsetMs !== null &&
+        Math.abs(ntpOffsetMs) >= 500
+            ? ` · ПК ${ntpOffsetMs > 0 ? "отстаёт" : "спешит"} на ${(
+                Math.abs(ntpOffsetMs) / 1000
+            ).toFixed(1)} с`
+            : "";
 
     return (
         <main
@@ -152,7 +185,8 @@ export default function Dashboard({
                         text-[#647085]
                     "
                 >
-                    {dateLabel} · {timeLabel}
+                    {dateLabel} · {timeLabel} · NTP ntp1.eenet.ee
+                    {ntpDifference}
                 </p>
             </header>
 
