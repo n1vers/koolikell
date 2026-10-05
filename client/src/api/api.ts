@@ -56,6 +56,28 @@ export async function createProfile(
     return response.json();
 }
 
+export async function updateProfile(
+    id: number,
+    name: string
+): Promise<Profile> {
+    const response = await fetch(
+        `${API_URL}/api/profiles/${id}`,
+        {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ name }),
+        }
+    );
+
+    if (!response.ok) {
+        throw new Error("Failed to rename profile");
+    }
+
+    return response.json();
+}
+
 
 export async function deleteProfile(
     id: number

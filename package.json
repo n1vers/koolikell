@@ -46,6 +46,10 @@
             {
                 "from": "server/sounds",
                 "to": "server/sounds"
+            },
+            {
+                "from": "server/playnow",
+                "to": "server/playnow"
             }
         ],
         "win": {

@@ -631,3 +631,23 @@ ipcMain.handle(
     "time:ntp",
     () => queryNtpServer("ntp1.eenet.ee")
 );
+
+ipcMain.handle(
+    "playnow-folder:open",
+    async () => {
+        const playNowPath = path.join(
+            projectRoot,
+            "server",
+            "playnow"
+        );
+
+        fs.mkdirSync(playNowPath, { recursive: true });
+        const error = await shell.openPath(playNowPath);
+
+        if (error) {
+            throw new Error(error);
+        }
+
+        return playNowPath;
+    }
+);

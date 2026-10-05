@@ -530,39 +530,15 @@ export default function SoundsPage() {
             {/* HEADER */}
             {/* ================================= */}
 
-            <div
-                className="
-                    mb-[30px]
-                    flex
-                    items-start
-                    justify-between
-                    gap-[24px]
-                    w-full
-                    max-w-[1040px]
-                "
-            >
-
-                <h1
-                    className="
-                        text-[28px]
-                        font-semibold
-                        text-[#1f2937]
-                    "
-                >
-                    Helid
-                </h1>
-
-
-                <p
-                    className="
-                        mt-[6px]
-                        text-[14px]
-                        text-[#7b8494]
-                    "
-                >
-                    Koolikellade helide
-                    haldamine
-                </p>
+            <div className="mb-[30px] flex w-full max-w-[1040px] items-start justify-between gap-[24px]">
+                <div>
+                    <h1 className="m-0 text-[28px] font-semibold text-[#1f2937]">
+                        Helid
+                    </h1>
+                    <p className="mt-[6px] text-[14px] text-[#7b8494]">
+                        Koolikellade helide haldamine
+                    </p>
+                </div>
 
                 <button
                     type="button"

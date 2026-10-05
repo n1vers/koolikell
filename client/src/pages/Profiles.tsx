@@ -6,7 +6,10 @@ interface ProfilesProps {
     profiles: Profile[];
     schedulesByProfile: Record<number, Schedule[]>;
     onCreateProfile: (name: string) => Promise<void>;
-    onEditProfile: (profile: Profile) => void;
+    onRenameProfile: (
+        profile: Profile,
+        name: string
+    ) => Promise<void>;
     onDeleteProfile: (profile: Profile) => void;
     onOpenProfile: (profile: Profile) => void;
     profileByDay: Record<number, number | null>;
@@ -81,7 +84,7 @@ export default function Profiles({
     profiles,
     schedulesByProfile,
     onCreateProfile,
-    onEditProfile,
+    onRenameProfile,
     onDeleteProfile,
     onOpenProfile,
     profileByDay,
@@ -101,6 +104,15 @@ export default function Profiles({
     const [menuId, setMenuId] =
         useState<number | null>(null);
 
+    const [editingProfile, setEditingProfile] =
+        useState<Profile | null>(null);
+
+    const [editingName, setEditingName] =
+        useState("");
+
+    const [savingName, setSavingName] =
+        useState(false);
+
     async function handleCreate() {
         const name =
             profileName.trim();
@@ -118,6 +130,24 @@ export default function Profiles({
             setShowCreate(false);
         } finally {
             setCreating(false);
+        }
+    }
+
+    async function handleRename() {
+        if (!editingProfile || !editingName.trim()) {
+            return;
+        }
+
+        try {
+            setSavingName(true);
+            await onRenameProfile(
+                editingProfile,
+                editingName.trim()
+            );
+            setEditingProfile(null);
+            setEditingName("");
+        } finally {
+            setSavingName(false);
         }
     }
 
@@ -327,9 +357,7 @@ export default function Profiles({
                                         ) => {
                                             event.stopPropagation();
 
-                                            onEditProfile(
-                                                profile
-                                            );
+                                            onOpenProfile(profile);
                                         }}
                                         className="
                                             absolute
@@ -412,9 +440,8 @@ export default function Profiles({
                                                         null
                                                     );
 
-                                                    onEditProfile(
-                                                        profile
-                                                    );
+                                                    setEditingProfile(profile);
+                                                    setEditingName(profile.name);
                                                 }}
                                                 className="
                                                     h-[42px]
@@ -429,7 +456,7 @@ export default function Profiles({
                                                     hover:bg-[#f5f7fb]
                                                 "
                                             >
-                                                Muuda
+                                                Muuda nime
                                             </button>
 
                                             <button
@@ -488,13 +515,6 @@ export default function Profiles({
                     )}
                 </div>
             </section>
-
-            <DateProfileCalendar
-                profiles={profiles}
-                assignments={profileByDate}
-                onAssignDate={onAssignDate}
-            />
-
 
             {/* ================================= */}
             {/* WEEK SCHEDULE */}
@@ -574,6 +594,57 @@ export default function Profiles({
                     })}
                 </div>
             </section>
+
+            <DateProfileCalendar
+                profiles={profiles}
+                assignments={profileByDate}
+                onAssignDate={onAssignDate}
+            />
+
+
+            {editingProfile && (
+                <div
+                    className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(27,33,45,0.25)]"
+                    onClick={() => setEditingProfile(null)}
+                >
+                    <div
+                        className="w-[420px] rounded-[14px] bg-white p-[24px] shadow-[0_15px_50px_rgba(27,33,45,0.15)]"
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        <h2 className="m-0 text-[20px] font-semibold text-[#1b212d]">
+                            Muuda profiili nime
+                        </h2>
+                        <input
+                            autoFocus
+                            value={editingName}
+                            onChange={(event) => setEditingName(event.target.value)}
+                            onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                    void handleRename();
+                                }
+                            }}
+                            className="mt-[18px] h-[44px] w-full rounded-[8px] border border-[#d9dee8] px-[12px] text-[14px] text-[#1b212d] outline-none focus:border-[#529eff]"
+                        />
+                        <div className="mt-[18px] flex justify-end gap-[8px]">
+                            <button
+                                type="button"
+                                onClick={() => setEditingProfile(null)}
+                                className="rounded-[8px] bg-[#f5f7fb] px-[14px] py-[9px] text-[13px] text-[#647085]"
+                            >
+                                Tühista
+                            </button>
+                            <button
+                                type="button"
+                                disabled={savingName || !editingName.trim()}
+                                onClick={() => void handleRename()}
+                                className="rounded-[8px] bg-[#529eff] px-[14px] py-[9px] text-[13px] font-medium text-white disabled:opacity-50"
+                            >
+                                {savingName ? "Salvestan..." : "Salvesta"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
 
             {/* ================================= */}

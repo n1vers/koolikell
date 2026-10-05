@@ -2,6 +2,8 @@
 
 interface Window {
     electronAPI?: {
+        openPlayNowFolder: () => Promise<string>;
+
         getNtpTime: () => Promise<{
             server: string;
             offsetMs: number;

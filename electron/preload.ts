@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("electronAPI", {
+    openPlayNowFolder: () =>
+        ipcRenderer.invoke("playnow-folder:open"),
+
     getNtpTime: () =>
         ipcRenderer.invoke("time:ntp"),
 

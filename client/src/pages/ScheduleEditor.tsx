@@ -364,7 +364,8 @@ export default function ScheduleEditor({
             <div
                 className="
                     grid
-                    grid-cols-[40px_90px_minmax(0,140px)_minmax(0,110px)_minmax(0,1fr)_36px]
+                    grid-cols-[40px_82px_minmax(170px,0.8fr)_minmax(150px,1fr)_58px_32px]
+                    gap-[12px]
                     items-center
                     px-[18px]
                     text-[10px]
@@ -379,7 +380,7 @@ export default function ScheduleEditor({
 
                 <span>Aeg</span>
 
-                <span>Predbell</span>
+                <span>Predzvon</span>
 
                 <span>Seisund</span>
 
@@ -411,7 +412,8 @@ export default function ScheduleEditor({
                             }
                             className="
                                 grid
-                                grid-cols-[40px_90px_minmax(0,140px)_minmax(0,110px)_minmax(0,1fr)_36px]
+                                grid-cols-[40px_82px_minmax(170px,0.8fr)_minmax(150px,1fr)_58px_32px]
+                                gap-[12px]
                                 min-w-0
                                 min-h-[60px]
                                 items-center
@@ -471,7 +473,7 @@ export default function ScheduleEditor({
 
                             {/* PRE BELL */}
 
-                            <div>
+                            <div className="flex min-w-0 items-center gap-[6px]">
 
                                 <>
                                         <label
@@ -479,7 +481,7 @@ export default function ScheduleEditor({
                                                 flex
                                                 cursor-pointer
                                                 items-center
-                                                gap-[7px]
+                                                gap-[5px]
                                             "
                                         >
 
@@ -523,7 +525,7 @@ export default function ScheduleEditor({
                                                     event.target.value
                                                 )
                                             }
-                                            className="mt-[6px] max-w-[115px] rounded-[6px] border border-[#e2e7ef] bg-white text-[10px] text-[#697589]"
+                                            className="mt-0 min-w-0 max-w-[112px] rounded-[6px] border border-[#e2e7ef] bg-white text-[10px] text-[#697589]"
                                         >
                                             <option value="">Predzvoni heli</option>
                                             {sounds.map((sound) => (
@@ -601,6 +603,8 @@ export default function ScheduleEditor({
                                     )
                                 }
                                 className="
+                                    min-w-0
+                                    w-full
                                     min-w-0
                                     max-w-full
                                     border-none

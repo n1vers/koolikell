@@ -296,3 +296,12 @@ electron_1.ipcMain.handle("sounds-folder:open", async () => {
     return soundsPath;
 });
 electron_1.ipcMain.handle("time:ntp", () => queryNtpServer("ntp1.eenet.ee"));
+electron_1.ipcMain.handle("playnow-folder:open", async () => {
+    const playNowPath = path_1.default.join(projectRoot, "server", "playnow");
+    fs_1.default.mkdirSync(playNowPath, { recursive: true });
+    const error = await electron_1.shell.openPath(playNowPath);
+    if (error) {
+        throw new Error(error);
+    }
+    return playNowPath;
+});

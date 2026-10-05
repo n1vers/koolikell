@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import path from "path";
+import fs from "fs/promises";
 
 import {
     getNextSchedule,
@@ -29,6 +30,7 @@ import {
 } from "./services/soundService";
 
 import { uploadSound } from "./middleware/uploadMiddleware";
+import { uploadPlayNow } from "./middleware/playNowUploadMiddleware";
 
 
 const app = express();
@@ -61,6 +63,13 @@ app.use(
     )
 );
 
+app.use(
+    "/playnow",
+    express.static(
+        path.join(process.cwd(), "playnow")
+    )
+);
+
 
 // =========================================
 // ROOT
@@ -75,6 +84,66 @@ app.get(
         });
     }
 );
+
+app.get("/api/playnow", async (_req, res) => {
+    try {
+        const directory = path.join(process.cwd(), "playnow");
+        const files = await fs.readdir(directory, {
+            withFileTypes: true,
+        });
+        const allowed = /\.(mp3|wav|ogg)$/i;
+
+        res.json(
+            files
+                .filter((file) => file.isFile() && allowed.test(file.name))
+                .map((file) => ({
+                    fileName: file.name,
+                    name: path
+                        .parse(file.name)
+                        .name
+                        .replace(/_\d{10,}$/, "")
+                        .replace(/_/g, " "),
+                }))
+        );
+    } catch (error) {
+        console.error("Failed to load PlayNow tracks:", error);
+        res.status(500).json({ error: "PlayNow lugemine ebaõnnestus" });
+    }
+});
+
+app.post(
+    "/api/playnow/upload",
+    uploadPlayNow.single("track"),
+    (req, res) => {
+        if (!req.file) {
+            return res.status(400).json({
+                error: "Helifail on kohustuslik",
+            });
+        }
+
+        res.status(201).json({
+            fileName: req.file.filename,
+            name: path
+                .parse(req.file.filename)
+                .name
+                .replace(/_\d{10,}$/, "")
+                .replace(/_/g, " "),
+        });
+    }
+);
+
+app.delete("/api/playnow/:fileName", async (req, res) => {
+    try {
+        const fileName = path.basename(req.params.fileName);
+        await fs.unlink(
+            path.join(process.cwd(), "playnow", fileName)
+        );
+        res.json({ message: "Track deleted" });
+    } catch (error) {
+        console.error("Failed to delete PlayNow track:", error);
+        res.status(404).json({ error: "Loo kustutamine ebaõnnestus" });
+    }
+});
 
 
 // =========================================

@@ -5,6 +5,7 @@ interface SidebarProps {
         page:
             | "dashboard"
             | "profiles"
+            | "playnow"
             | "sounds"
             | "settings"
     ) => void;
@@ -29,6 +30,11 @@ export default function Sidebar({
             id: "sounds",
             icon: "♫",
             label: "Helid",
+        },
+        {
+            id: "playnow",
+            icon: "▶",
+            label: "PlayNow",
         },
         {
             id: "settings",

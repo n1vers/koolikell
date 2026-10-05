@@ -23,6 +23,8 @@
 # Runtime-uploaded sound files
 /server/sounds/*
 !/server/sounds/.gitkeep
+/server/playnow/*
+!/server/playnow/.gitkeep
 
 # Keep the Windows installer icon under version control
 !/build/

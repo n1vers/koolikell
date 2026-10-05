@@ -6,6 +6,7 @@ import Sidebar from "./components/Sidebar";
 import Profiles from "./pages/Profiles";
 import ScheduleEditor from "./pages/ScheduleEditor";
 import SoundsPage from "./pages/SoundsPage";
+import PlayNowPage from "./pages/PlayNowPage";
 import type {
     Profile,
     Schedule,
@@ -23,6 +24,7 @@ import {
     getSchedules,
     getSounds,
     createProfile,
+    updateProfile,
     deleteProfile,
     createSchedule,
     updateSchedule,
@@ -33,6 +35,7 @@ type Page =
     | "dashboard"
     | "profiles"
     | "sounds"
+    | "playnow"
     | "settings"
     | "schedule-editor";
 
@@ -673,20 +676,27 @@ useEffect(() => {
     // EDIT PROFILE
     // =========================================
 
-    function handleEditProfile(
+    async function handleRenameProfile(
         profile: Profile
+        , name: string
     ) {
-        /*
-         * Пока отдельного окна
-         * изменения названия профиля
-         * нет.
-         *
-         * Поэтому открываем редактор
-         * расписания.
-         */
+        const updatedProfile = await updateProfile(
+            profile.id,
+            name.trim()
+        );
 
-        handleOpenProfile(
-            profile
+        setProfiles((current) =>
+            current.map((item) =>
+                item.id === updatedProfile.id
+                    ? updatedProfile
+                    : item
+            )
+        );
+
+        setSelectedProfile((current) =>
+            current?.id === updatedProfile.id
+                ? updatedProfile
+                : current
         );
     }
 
@@ -1120,8 +1130,8 @@ useEffect(() => {
                         handleCreateProfile
                     }
 
-                    onEditProfile={
-                        handleEditProfile
+                    onRenameProfile={
+                        handleRenameProfile
                     }
 
                     onDeleteProfile={
@@ -1204,6 +1214,10 @@ useEffect(() => {
             {currentPage === "sounds" && (
     <SoundsPage />
 )}
+
+            {currentPage === "playnow" && (
+                <PlayNowPage />
+            )}
 
 
             {/* ================================= */}
