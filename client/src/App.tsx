@@ -1327,6 +1327,24 @@ useEffect(() => {
                             </label>
                         </section>
                     </div>
+
+                    <section className="mt-[18px] w-full max-w-[960px] rounded-[14px] border border-[#e5e9f0] bg-white p-[24px] shadow-[0_8px_24px_rgba(27,33,45,0.04)]">
+                        <h2 className="m-0 text-[18px] font-semibold text-[#1b212d]">
+                            Avatud lähtekoodiga projekt
+                        </h2>
+                        <p className="mt-[8px] text-[14px] leading-[22px] text-[#647085]">
+                            SchoolBell on avatud lähtekoodiga projekt.
+                        </p>
+                        <a
+                            href="https://github.com/n1vers/koolikell"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-[12px] inline-block text-[14px] font-medium text-[#397ed8] underline underline-offset-[3px] hover:text-[#2465b8]"
+                        >
+                            Vaata projekti GitHubis
+                        </a>
+                    </section>
+
                     <AppLogs />
                 </main>
             )}
