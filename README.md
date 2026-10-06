@@ -6,7 +6,7 @@ SchoolBell помогает школе настроить расписание �
 
 ## Скачать
 
-**[Скачать SchoolBell для Windows](https://github.com/n1vers/koolikell/releases/download/v1.0.0/SchoolBell.Setup.1.0.0.exe)**
+**[Скачать SchoolBell для Windows]([https://github.com/n1vers/koolikell/releases/download/v1.0.0/SchoolBell.Setup.1.0.0.exe](https://github.com/n1vers/koolikell/releases/download/v1.0.0/SchoolBell-Setup-1.0.0.exe))**
 
 Установщик находится в официальном [GitHub Release v1.0.0](https://github.com/n1vers/koolikell/releases/tag/v1.0.0).
 
