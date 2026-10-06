@@ -19,7 +19,7 @@ npm run electron
 
 ## Скачать
 
-**[Скачать koolikell для Windows](https://github.com/n1vers/koolikell/releases/download/v1.1.3/koolikell.Setup.1.1.3.exe)**
+**[Скачать koolikell для Windows](https://github.com/n1vers/koolikell/releases/download/v1.1.4/koolikell.Setup.1.1.4.exe)**
 
 Установщик находится в официальном [GitHub Release v1.0.0](https://github.com/n1vers/koolikell/releases/tag/v1.0.0).
 

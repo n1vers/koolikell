@@ -2,8 +2,7 @@ export interface PlayNowTrack {
     fileName: string;
     name: string;
 }
-
-const API_URL = "http://localhost:3000";
+import { API_URL } from "../api/apiBase";
 
 export async function getPlayNowTracks(): Promise<PlayNowTrack[]> {
     const response = await fetch(`${API_URL}/api/playnow`);

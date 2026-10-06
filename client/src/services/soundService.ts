@@ -4,8 +4,7 @@ export interface Sound {
     fileName: string;
     createdAt: string;
 }
-
-const API_URL = "http://localhost:3000";
+import { API_URL } from "../api/apiBase";
 
 export async function getSounds(): Promise<Sound[]> {
     const response = await fetch(

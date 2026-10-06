@@ -4,11 +4,7 @@ import type {
     Sound,
     ScheduleType,
 } from "../types";
-
-const API_URL =
-    window.location.protocol === "file:"
-        ? "http://localhost:3000"
-        : window.location.origin;
+import { API_URL } from "./apiBase";
 
 
 // ============================================

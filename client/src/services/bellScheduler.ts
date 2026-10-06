@@ -1,7 +1,6 @@
 import { playBell } from "./bellAudio";
 import { writeAppLog } from "./logService";
-
-const API_URL = "http://localhost:3000";
+import { API_URL } from "../api/apiBase";
 
 let timer: ReturnType<typeof setInterval> | null = null;
 
