@@ -79,6 +79,25 @@ const projectRoot = electron_1.app.isPackaged
     : path_1.default.resolve(__dirname, "..");
 const serverPath = path_1.default.join(projectRoot, "server", "dist", "server.js");
 const clientDistPath = path_1.default.join(projectRoot, "client", "dist");
+const dataRoot = path_1.default.join(electron_1.app.getPath("userData"), "data");
+const dataSoundsPath = path_1.default.join(dataRoot, "sounds");
+const dataPlayNowPath = path_1.default.join(dataRoot, "playnow");
+function prepareDataDirectory() {
+    fs_1.default.mkdirSync(dataRoot, { recursive: true });
+    const bundledServerRoot = path_1.default.join(projectRoot, "server");
+    for (const directory of ["sounds", "playnow"]) {
+        const target = path_1.default.join(dataRoot, directory);
+        const source = path_1.default.join(bundledServerRoot, directory);
+        fs_1.default.mkdirSync(target, { recursive: true });
+        if (fs_1.default.existsSync(source)) {
+            fs_1.default.cpSync(source, target, {
+                recursive: true,
+                force: false,
+                errorOnExist: false,
+            });
+        }
+    }
+}
 // ========================================
 // WAIT FOR SERVER
 // ========================================
@@ -108,13 +127,15 @@ function startServer() {
         let serverReady = false;
         console.log("Starting SchoolBell server...");
         console.log("Server:", serverPath);
-        const nodePath = "C:\\Program Files\\nodejs\\node.exe";
-        serverProcess = (0, child_process_1.spawn)(nodePath, [
+        prepareDataDirectory();
+        serverProcess = (0, child_process_1.spawn)(process.execPath, [
             serverPath,
         ], {
-            cwd: path_1.default.join(projectRoot, "server"),
+            cwd: dataRoot,
             env: {
                 ...process.env,
+                ELECTRON_RUN_AS_NODE: "1",
+                DATABASE_URL: "file:./schoolbell.db",
             },
             stdio: [
                 "ignore",
@@ -227,7 +248,7 @@ function createTray() {
     if (tray) {
         return;
     }
-    const icon = electron_1.nativeImage.createFromPath(path_1.default.join(projectRoot, "client", "public", "favicon.svg"));
+    const icon = electron_1.nativeImage.createFromPath(path_1.default.join(projectRoot, "client", "dist", "favicon.svg"));
     tray = new electron_1.Tray(icon);
     tray.setToolTip("SchoolBell");
     tray.setContextMenu(electron_1.Menu.buildFromTemplate([
@@ -285,7 +306,7 @@ electron_1.app.on("before-quit", () => {
     stopServer();
 });
 electron_1.ipcMain.handle("sounds-folder:open", async () => {
-    const soundsPath = path_1.default.join(projectRoot, "server", "sounds");
+    const soundsPath = path_1.default.join(dataSoundsPath);
     fs_1.default.mkdirSync(soundsPath, {
         recursive: true,
     });
@@ -297,7 +318,7 @@ electron_1.ipcMain.handle("sounds-folder:open", async () => {
 });
 electron_1.ipcMain.handle("time:ntp", () => queryNtpServer("ntp1.eenet.ee"));
 electron_1.ipcMain.handle("playnow-folder:open", async () => {
-    const playNowPath = path_1.default.join(projectRoot, "server", "playnow");
+    const playNowPath = path_1.default.join(dataPlayNowPath);
     fs_1.default.mkdirSync(playNowPath, { recursive: true });
     const error = await electron_1.shell.openPath(playNowPath);
     if (error) {

@@ -136,6 +136,45 @@ const clientDistPath = path.join(
     "dist"
 );
 
+const dataRoot = path.join(
+    app.getPath("userData"),
+    "data"
+);
+
+const dataSoundsPath = path.join(
+    dataRoot,
+    "sounds"
+);
+
+const dataPlayNowPath = path.join(
+    dataRoot,
+    "playnow"
+);
+
+function prepareDataDirectory() {
+    fs.mkdirSync(dataRoot, { recursive: true });
+
+    const bundledServerRoot = path.join(
+        projectRoot,
+        "server"
+    );
+
+    for (const directory of ["sounds", "playnow"]) {
+        const target = path.join(dataRoot, directory);
+        const source = path.join(bundledServerRoot, directory);
+
+        fs.mkdirSync(target, { recursive: true });
+
+        if (fs.existsSync(source)) {
+            fs.cpSync(source, target, {
+                recursive: true,
+                force: false,
+                errorOnExist: false,
+            });
+        }
+    }
+}
+
 
 // ========================================
 // WAIT FOR SERVER
@@ -206,24 +245,20 @@ function startServer(): Promise<void> {
                 serverPath
             );
 
-
-            const nodePath =
-                "C:\\Program Files\\nodejs\\node.exe";
-
+            prepareDataDirectory();
 
             serverProcess = spawn(
-                nodePath,
+                process.execPath,
                 [
                     serverPath,
                 ],
                 {
-                    cwd: path.join(
-                        projectRoot,
-                        "server"
-                    ),
+                    cwd: dataRoot,
 
                     env: {
                         ...process.env,
+                        ELECTRON_RUN_AS_NODE: "1",
+                        DATABASE_URL: "file:./schoolbell.db",
                     },
 
                     stdio: [
@@ -482,7 +517,7 @@ function createTray() {
         path.join(
             projectRoot,
             "client",
-            "public",
+            "dist",
             "favicon.svg"
         )
     );
@@ -606,9 +641,7 @@ ipcMain.handle(
     "sounds-folder:open",
     async () => {
         const soundsPath = path.join(
-            projectRoot,
-            "server",
-            "sounds"
+            dataSoundsPath
         );
 
         fs.mkdirSync(soundsPath, {
@@ -636,9 +669,7 @@ ipcMain.handle(
     "playnow-folder:open",
     async () => {
         const playNowPath = path.join(
-            projectRoot,
-            "server",
-            "playnow"
+            dataPlayNowPath
         );
 
         fs.mkdirSync(playNowPath, { recursive: true });
