@@ -1004,13 +1004,18 @@ const server = app.listen(PORT, HOST, () => {
 if (FRONTEND_HOST && clientDistPath) {
     const frontendApp = express();
 
-    frontendApp.use(
-        ["/api", "/sounds", "/playnow"],
-        createProxyMiddleware({
-            target: `http://${HOST}:${PORT}`,
-            changeOrigin: false,
-        })
-    );
+    for (const route of ["/api", "/sounds", "/playnow"]) {
+        frontendApp.use(
+            route,
+            createProxyMiddleware({
+                target: `http://${HOST}:${PORT}`,
+                changeOrigin: false,
+                pathRewrite: {
+                    "^/": `${route}/`,
+                },
+            })
+        );
+    }
     frontendApp.use(express.static(clientDistPath));
     frontendApp.use((_req, res) => {
         res.sendFile(path.join(clientDistPath, "index.html"));
