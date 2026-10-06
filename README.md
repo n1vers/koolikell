@@ -19,7 +19,7 @@ npm run electron
 
 ## Скачать
 
-**[Скачать SchoolBell для Windows](https://github.com/n1vers/koolikell/releases/download/v1.0.0/SchoolBell-Setup-1.0.0.exe)**
+**[Скачать koolikell для Windows](https://github.com/n1vers/koolikell/releases/download/v1.1.0/koolikell%20Setup%201.1.0.exe)**
 
 Установщик находится в официальном [GitHub Release v1.0.0](https://github.com/n1vers/koolikell/releases/tag/v1.0.0).
 
@@ -51,7 +51,7 @@ npm run electron
 ## Установка
 
 1. Скачайте установщик по ссылке в разделе [Скачать](#скачать).
-2. Запустите файл SchoolBell.Setup.1.0.0.exe.
+2. Запустите файл koolikell Setup 1.1.0.exe.
 3. Следуйте инструкциям установщика.
 4. Запустите SchoolBell через меню «Пуск» или ярлык на рабочем столе.
 
