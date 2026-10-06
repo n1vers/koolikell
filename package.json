@@ -50,6 +50,10 @@
             {
                 "from": "server/playnow",
                 "to": "server/playnow"
+            },
+            {
+                "from": "build/icon.ico",
+                "to": "build/icon.ico"
             }
         ],
         "win": {

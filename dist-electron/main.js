@@ -251,7 +251,15 @@ function createTray() {
     if (tray) {
         return;
     }
-    const icon = electron_1.nativeImage.createFromPath(path_1.default.join(projectRoot, "client", "dist", "favicon.svg"));
+    const iconPath = electron_1.app.isPackaged
+        ? path_1.default.join(projectRoot, "build", "icon.ico")
+        : path_1.default.resolve(__dirname, "..", "build", "icon.ico");
+    const icon = electron_1.nativeImage
+        .createFromPath(iconPath)
+        .resize({ width: 16, height: 16 });
+    if (icon.isEmpty()) {
+        throw new Error(`Failed to load tray icon from ${iconPath}`);
+    }
     tray = new electron_1.Tray(icon);
     tray.setToolTip("koolikell");
     tray.setContextMenu(electron_1.Menu.buildFromTemplate([

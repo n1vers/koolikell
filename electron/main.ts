@@ -516,14 +516,16 @@ function createTray() {
         return;
     }
 
-    const icon = nativeImage.createFromPath(
-        path.join(
-            projectRoot,
-            "client",
-            "dist",
-            "favicon.svg"
-        )
-    );
+    const iconPath = app.isPackaged
+        ? path.join(projectRoot, "build", "icon.ico")
+        : path.resolve(__dirname, "..", "build", "icon.ico");
+    const icon = nativeImage
+        .createFromPath(iconPath)
+        .resize({ width: 16, height: 16 });
+
+    if (icon.isEmpty()) {
+        throw new Error(`Failed to load tray icon from ${iconPath}`);
+    }
 
     tray = new Tray(icon);
     tray.setToolTip("koolikell");
