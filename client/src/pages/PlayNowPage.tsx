@@ -16,11 +16,23 @@ export default function PlayNowPage() {
     const [loopMode, setLoopMode] = useState<
         "off" | "track" | "playlist"
     >("off");
+    const [volume, setVolume] = useState(() => {
+        const savedVolume = Number(
+            localStorage.getItem("schoolbell-playnow-volume")
+        );
+
+        return Number.isFinite(savedVolume) &&
+            savedVolume >= 0 &&
+            savedVolume <= 100
+            ? savedVolume
+            : 80;
+    });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [isDragging, setIsDragging] = useState(false);
     const [draggedFile, setDraggedFile] = useState<string | null>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
+    const volumeRef = useRef(volume);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
 
     useEffect(() => {
@@ -67,6 +79,7 @@ export default function PlayNowPage() {
 
         stop();
         const audio = new Audio(getPlayNowTrackUrl(fileName));
+        audio.volume = volumeRef.current / 100;
         audio.loop = loopMode === "track";
         audio.onloadedmetadata = () => setDuration(audio.duration);
         audio.ontimeupdate = () => setCurrentTime(audio.currentTime);
@@ -90,6 +103,18 @@ export default function PlayNowPage() {
         setPlaying(true);
         setCurrentTime(0);
         void audio.play();
+    }
+
+    function handleVolumeChange(nextVolume: number) {
+        setVolume(nextVolume);
+        volumeRef.current = nextVolume;
+        localStorage.setItem(
+            "schoolbell-playnow-volume",
+            String(nextVolume)
+        );
+        if (audioRef.current) {
+            audioRef.current.volume = nextVolume / 100;
+        }
     }
 
     function formatTime(value: number) {
@@ -309,6 +334,26 @@ export default function PlayNowPage() {
                         <option value="track">Korda lugu</option>
                         <option value="playlist">Korda esitusloendit</option>
                     </select>
+                    <label className="flex min-w-[190px] items-center gap-[8px] text-[13px] text-[#647085]">
+                        <span>Helitugevus</span>
+                        <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="1"
+                            value={volume}
+                            onChange={(event) =>
+                                handleVolumeChange(
+                                    Number(event.target.value)
+                                )
+                            }
+                            aria-label="Helitugevus"
+                            className="min-w-0 flex-1 accent-[#529eff]"
+                        />
+                        <span className="w-[34px] text-right text-[12px]">
+                            {volume}%
+                        </span>
+                    </label>
                     <span className="ml-auto text-[13px] text-[#647085]">
                         {playing ? "Esitab" : "Peatatud"}
                     </span>
