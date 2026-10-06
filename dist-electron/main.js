@@ -137,6 +137,7 @@ function startServer() {
                 ELECTRON_RUN_AS_NODE: "1",
                 DATABASE_URL: "file:./schoolbell.db",
                 HOST: "127.0.0.1",
+                FRONTEND_HOST: "0.0.0.0",
                 CLIENT_DIST_PATH: clientDistPath,
             },
             stdio: [

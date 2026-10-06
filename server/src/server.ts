@@ -3,6 +3,7 @@ import cors from "cors";
 import path from "path";
 import fs from "fs/promises";
 import Database from "better-sqlite3";
+import { createProxyMiddleware } from "http-proxy-middleware";
 
 import {
     getNextSchedule,
@@ -38,6 +39,8 @@ const app = express();
 
 const PORT = 3000;
 const HOST = process.env.HOST ?? "127.0.0.1";
+const FRONTEND_PORT = 5173;
+const FRONTEND_HOST = process.env.FRONTEND_HOST;
 const clientDistPath = process.env.CLIENT_DIST_PATH;
 
 function initializeDatabase() {
@@ -120,35 +123,19 @@ app.use(
     )
 );
 
-if (clientDistPath) {
-    app.use(express.static(clientDistPath));
-}
-
-
 // =========================================
 // ROOT
 // =========================================
 
 app.get(
     "/",
-    (req, res) => {
-        if (clientDistPath && req.accepts("html")) {
-            res.sendFile(path.join(clientDistPath, "index.html"));
-            return;
-        }
-
+    (_req, res) => {
         res.json({
             message:
                 "koolikell API is running",
         });
     }
 );
-
-if (clientDistPath) {
-    app.get(/^(?!\/api(?:\/|$)|\/sounds(?:\/|$)|\/playnow(?:\/|$)).*/, (_req, res) => {
-        res.sendFile(path.join(clientDistPath, "index.html"));
-    });
-}
 
 app.get("/api/playnow", async (_req, res) => {
     try {
@@ -1013,6 +1000,28 @@ const server = app.listen(PORT, HOST, () => {
         `Server started on http://${HOST}:${PORT}`
     );
 });
+
+if (FRONTEND_HOST && clientDistPath) {
+    const frontendApp = express();
+
+    frontendApp.use(
+        ["/api", "/sounds", "/playnow"],
+        createProxyMiddleware({
+            target: `http://${HOST}:${PORT}`,
+            changeOrigin: false,
+        })
+    );
+    frontendApp.use(express.static(clientDistPath));
+    frontendApp.use((_req, res) => {
+        res.sendFile(path.join(clientDistPath, "index.html"));
+    });
+
+    frontendApp.listen(FRONTEND_PORT, FRONTEND_HOST, () => {
+        console.log(
+            `Frontend started on http://${FRONTEND_HOST}:${FRONTEND_PORT}`
+        );
+    });
+}
 
 server.on("error", (error) => {
     console.error(
