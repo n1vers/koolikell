@@ -274,6 +274,7 @@ function createTray() {
 // ========================================
 electron_1.app.whenReady().then(async () => {
     try {
+        electron_1.app.setName("koolikell");
         await startServer();
         console.log("Backend is ready.");
         createWindow();

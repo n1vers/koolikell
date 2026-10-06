@@ -556,6 +556,8 @@ app.whenReady().then(
 
         try {
 
+            app.setName("koolikell");
+
             await startServer();
 
 
