@@ -353,9 +353,14 @@ function startServer(): Promise<void> {
                 waitForServer(
                     "http://localhost:3000/"
                 )
-                    .then(() => {
-                        serverReady = true;
-                        resolve();
+                .then(() =>
+                    waitForServer(
+                        "http://127.0.0.1:5173/"
+                    )
+                )
+                .then(() => {
+                    serverReady = true;
+                    resolve();
                     })
                     .catch((error: unknown) => {
                         console.error(

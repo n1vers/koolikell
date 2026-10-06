@@ -6,8 +6,7 @@ import type {
 } from "../types";
 
 const API_URL =
-    window.location.protocol === "file:" ||
-    window.location.port === "5173"
+    window.location.protocol === "file:"
         ? "http://localhost:3000"
         : window.location.origin;
 

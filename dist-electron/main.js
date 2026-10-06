@@ -168,6 +168,7 @@ function startServer() {
         });
         setTimeout(() => {
             waitForServer("http://localhost:3000/")
+                .then(() => waitForServer("http://127.0.0.1:5173/"))
                 .then(() => {
                 serverReady = true;
                 resolve();
