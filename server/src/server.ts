@@ -37,6 +37,8 @@ import { uploadPlayNow } from "./middleware/playNowUploadMiddleware";
 const app = express();
 
 const PORT = 3000;
+const HOST = process.env.HOST ?? "127.0.0.1";
+const clientDistPath = process.env.CLIENT_DIST_PATH;
 
 function initializeDatabase() {
     const database = new Database(
@@ -118,6 +120,10 @@ app.use(
     )
 );
 
+if (clientDistPath) {
+    app.use(express.static(clientDistPath));
+}
+
 
 // =========================================
 // ROOT
@@ -126,12 +132,23 @@ app.use(
 app.get(
     "/",
     (req, res) => {
+        if (clientDistPath && req.accepts("html")) {
+            res.sendFile(path.join(clientDistPath, "index.html"));
+            return;
+        }
+
         res.json({
             message:
-                "SchoolBell API is running",
+                "koolikell API is running",
         });
     }
 );
+
+if (clientDistPath) {
+    app.get(/^(?!\/api(?:\/|$)|\/sounds(?:\/|$)|\/playnow(?:\/|$)).*/, (_req, res) => {
+        res.sendFile(path.join(clientDistPath, "index.html"));
+    });
+}
 
 app.get("/api/playnow", async (_req, res) => {
     try {
@@ -991,9 +1008,9 @@ app.get(
 // START SERVER
 // =========================================
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, HOST, () => {
     console.log(
-        `Server started on http://localhost:${PORT}`
+        `Server started on http://${HOST}:${PORT}`
     );
 });
 

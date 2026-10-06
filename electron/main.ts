@@ -200,7 +200,7 @@ async function waitForServer(
             if (response.ok) {
 
                 console.log(
-                    "SchoolBell server is ready."
+                    "koolikell server is ready."
                 );
 
                 return;
@@ -237,7 +237,7 @@ function startServer(): Promise<void> {
             let serverReady = false;
 
             console.log(
-                "Starting SchoolBell server..."
+                "Starting koolikell server..."
             );
 
             console.log(
@@ -259,6 +259,8 @@ function startServer(): Promise<void> {
                         ...process.env,
                         ELECTRON_RUN_AS_NODE: "1",
                         DATABASE_URL: "file:./schoolbell.db",
+                        HOST: "127.0.0.1",
+                        CLIENT_DIST_PATH: clientDistPath,
                     },
 
                     stdio: [
@@ -326,7 +328,7 @@ function startServer(): Promise<void> {
                     if (!serverReady) {
                         reject(
                             new Error(
-                                "SchoolBell server exited before becoming ready."
+                                "koolikell server exited before becoming ready."
                             )
                         );
                     }
@@ -337,7 +339,7 @@ function startServer(): Promise<void> {
                     ) {
 
                         console.error(
-                            "SchoolBell server exited unexpectedly."
+                            "koolikell server exited unexpectedly."
                         );
 
                     }
@@ -383,7 +385,7 @@ function stopServer() {
 
 
     console.log(
-        "Stopping SchoolBell server..."
+        "Stopping koolikell server..."
     );
 
 
@@ -440,6 +442,7 @@ function createWindow() {
 
     mainWindow =
         new BrowserWindow({
+            title: "koolikell",
 
             width: 1440,
 
@@ -523,11 +526,11 @@ function createTray() {
     );
 
     tray = new Tray(icon);
-    tray.setToolTip("SchoolBell");
+    tray.setToolTip("koolikell");
     tray.setContextMenu(
         Menu.buildFromTemplate([
             {
-                label: "Ava SchoolBell",
+                label: "Ava koolikell",
                 click: () => mainWindow?.show(),
             },
             {
@@ -567,7 +570,7 @@ app.whenReady().then(
         } catch (error) {
 
             console.error(
-                "Failed to initialize SchoolBell:",
+                "Failed to initialize koolikell:",
                 error
             );
 

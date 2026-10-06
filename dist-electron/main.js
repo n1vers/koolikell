@@ -108,7 +108,7 @@ async function waitForServer(url, timeout = 15000) {
         try {
             const response = await fetch(url);
             if (response.ok) {
-                console.log("SchoolBell server is ready.");
+                console.log("koolikell server is ready.");
                 return;
             }
         }
@@ -125,7 +125,7 @@ async function waitForServer(url, timeout = 15000) {
 function startServer() {
     return new Promise((resolve, reject) => {
         let serverReady = false;
-        console.log("Starting SchoolBell server...");
+        console.log("Starting koolikell server...");
         console.log("Server:", serverPath);
         prepareDataDirectory();
         serverProcess = (0, child_process_1.spawn)(process.execPath, [
@@ -136,6 +136,8 @@ function startServer() {
                 ...process.env,
                 ELECTRON_RUN_AS_NODE: "1",
                 DATABASE_URL: "file:./schoolbell.db",
+                HOST: "127.0.0.1",
+                CLIENT_DIST_PATH: clientDistPath,
             },
             stdio: [
                 "ignore",
@@ -157,10 +159,10 @@ function startServer() {
             console.log(`Server stopped. Code: ${code}, Signal: ${signal}`);
             serverProcess = null;
             if (!serverReady) {
-                reject(new Error("SchoolBell server exited before becoming ready."));
+                reject(new Error("koolikell server exited before becoming ready."));
             }
             if (code !== 0) {
-                console.error("SchoolBell server exited unexpectedly.");
+                console.error("koolikell server exited unexpectedly.");
             }
         });
         setTimeout(() => {
@@ -183,7 +185,7 @@ function stopServer() {
     if (!serverProcess) {
         return;
     }
-    console.log("Stopping SchoolBell server...");
+    console.log("Stopping koolikell server...");
     serverProcess.kill();
     serverProcess = null;
 }
@@ -211,6 +213,7 @@ function createWindow() {
     const startHidden = process.argv.includes("--hidden");
     mainWindow =
         new electron_1.BrowserWindow({
+            title: "koolikell",
             width: 1440,
             height: 900,
             minWidth: 1200,
@@ -250,10 +253,10 @@ function createTray() {
     }
     const icon = electron_1.nativeImage.createFromPath(path_1.default.join(projectRoot, "client", "dist", "favicon.svg"));
     tray = new electron_1.Tray(icon);
-    tray.setToolTip("SchoolBell");
+    tray.setToolTip("koolikell");
     tray.setContextMenu(electron_1.Menu.buildFromTemplate([
         {
-            label: "Ava SchoolBell",
+            label: "Ava koolikell",
             click: () => mainWindow?.show(),
         },
         {
@@ -277,7 +280,7 @@ electron_1.app.whenReady().then(async () => {
         createTray();
     }
     catch (error) {
-        console.error("Failed to initialize SchoolBell:", error);
+        console.error("Failed to initialize koolikell:", error);
         electron_1.app.quit();
     }
     electron_1.app.on("activate", () => {

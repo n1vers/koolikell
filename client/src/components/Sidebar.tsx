@@ -71,7 +71,7 @@ export default function Sidebar({
                     text-[#1b212d]
                 "
             >
-                🔔&nbsp; KooliKell
+                🔔&nbsp; koolikell
             </div>
 
 

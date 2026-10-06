@@ -9,7 +9,13 @@ export default defineConfig({
         tailwindcss(),
     ],
     server: {
+        host: true,
         port: 5173,
         strictPort: true,
+        proxy: {
+            "/api": "http://127.0.0.1:3000",
+            "/sounds": "http://127.0.0.1:3000",
+            "/playnow": "http://127.0.0.1:3000",
+        },
     },
 });

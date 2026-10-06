@@ -5,7 +5,11 @@ import type {
     ScheduleType,
 } from "../types";
 
-const API_URL = "http://localhost:3000";
+const API_URL =
+    window.location.protocol === "file:" ||
+    window.location.port === "5173"
+        ? "http://localhost:3000"
+        : window.location.origin;
 
 
 // ============================================

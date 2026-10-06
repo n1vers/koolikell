@@ -684,7 +684,7 @@ export default function SoundsPage() {
                             "
                         >
                             Fail laaditakse
-                                SchoolBelli üles
+                                koolikella üles
                         </div>
 
                     </>

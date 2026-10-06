@@ -1279,7 +1279,7 @@ useEffect(() => {
                                 Windows
                             </h2>
                             <p className="mb-[18px] mt-[8px] text-[14px] leading-[22px] text-[#647085]">
-                                Määra, kuidas SchoolBell Windowsis käivitub.
+                                Määra, kuidas koolikell Windowsis käivitub.
                             </p>
 
                             <label className="flex cursor-pointer items-start justify-between gap-[20px] border-b border-[#eef1f5] py-[16px]">
@@ -1288,7 +1288,7 @@ useEffect(() => {
                                         Käivita Windowsiga
                                     </span>
                                     <span className="mt-[4px] block text-[13px] leading-[20px] text-[#7b8494]">
-                                        Ava SchoolBell automaatselt pärast sisselogimist.
+                                        Ava koolikell automaatselt pärast sisselogimist.
                                     </span>
                                 </span>
                                 <input
@@ -1333,7 +1333,7 @@ useEffect(() => {
                             Avatud lähtekoodiga projekt
                         </h2>
                         <p className="mt-[8px] text-[14px] leading-[22px] text-[#647085]">
-                            SchoolBell on avatud lähtekoodiga projekt.
+                            koolikell on avatud lähtekoodiga projekt.
                         </p>
                         <a
                             href="https://github.com/n1vers/koolikell"

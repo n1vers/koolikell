@@ -1,7 +1,7 @@
 {
-    "name": "schoolbell",
-    "version": "1.0.1",
-    "productName": "SchoolBell",
+    "name": "koolikell",
+    "version": "1.1.0",
+    "productName": "koolikell",
     "description": "Koolikellade ajakava ja automaatne helistamine Windowsis",
     "main": "dist-electron/main.js",
     "scripts": {
@@ -17,8 +17,8 @@
 },
 
     "build": {
-        "appId": "ee.schoolbell.app",
-        "productName": "SchoolBell",
+        "appId": "ee.koolikell.app",
+        "productName": "koolikell",
         "directories": {
             "output": "release"
         },
@@ -63,7 +63,7 @@
             "allowToChangeInstallationDirectory": true,
             "createDesktopShortcut": true,
             "createStartMenuShortcut": true,
-            "shortcutName": "SchoolBell"
+            "shortcutName": "koolikell"
         }
     },
 
