@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import fs from "fs/promises";
+import Database from "better-sqlite3";
 
 import {
     getNextSchedule,
@@ -36,6 +37,53 @@ import { uploadPlayNow } from "./middleware/playNowUploadMiddleware";
 const app = express();
 
 const PORT = 3000;
+
+function initializeDatabase() {
+    const database = new Database(
+        path.join(process.cwd(), "schoolbell.db")
+    );
+
+    database.exec(`
+        CREATE TABLE IF NOT EXISTS "Profile" (
+            "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            "name" TEXT NOT NULL,
+            "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updatedAt" DATETIME NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS "Sound" (
+            "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            "name" TEXT NOT NULL,
+            "fileName" TEXT NOT NULL,
+            "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS "Schedule" (
+            "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            "profileId" INTEGER NOT NULL,
+            "dayOfWeek" INTEGER NOT NULL,
+            "time" TEXT NOT NULL,
+            "type" TEXT NOT NULL,
+            "enabled" BOOLEAN NOT NULL DEFAULT true,
+            "preBellEnabled" BOOLEAN NOT NULL DEFAULT true,
+            "soundId" INTEGER,
+            "preBellSoundId" INTEGER,
+            CONSTRAINT "Schedule_profileId_fkey"
+                FOREIGN KEY ("profileId") REFERENCES "Profile" ("id")
+                ON DELETE RESTRICT ON UPDATE CASCADE,
+            CONSTRAINT "Schedule_soundId_fkey"
+                FOREIGN KEY ("soundId") REFERENCES "Sound" ("id")
+                ON DELETE SET NULL ON UPDATE CASCADE,
+            CONSTRAINT "Schedule_preBellSoundId_fkey"
+                FOREIGN KEY ("preBellSoundId") REFERENCES "Sound" ("id")
+                ON DELETE SET NULL ON UPDATE CASCADE
+        );
+    `);
+
+    database.close();
+}
+
+initializeDatabase();
 
 
 // =========================================

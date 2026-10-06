@@ -8,12 +8,13 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "postinstall": "prisma skills sync || exit 0"
-},
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/multer": "^2.3.0",
