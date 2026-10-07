@@ -6,6 +6,139 @@ import type {
 } from "../types";
 import { API_URL } from "./apiBase";
 
+export type PinRole = "master" | "playnow" | null;
+
+export interface ProfileAssignments {
+    profileByDay: Record<string, number | null>;
+    profileByDate: Record<string, number | null>;
+}
+
+export async function getAutomaticEnabled(): Promise<boolean> {
+    const response = await fetch(`${API_URL}/api/settings/automatic`);
+    if (!response.ok) {
+        throw new Error("Failed to load automatic calling setting");
+    }
+    const data = (await response.json()) as { enabled: boolean };
+    return data.enabled;
+}
+
+export async function setAutomaticEnabled(enabled: boolean): Promise<boolean> {
+    const response = await fetch(`${API_URL}/api/settings/automatic`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+    });
+    if (!response.ok) {
+        throw new Error("Failed to update automatic calling setting");
+    }
+    const data = (await response.json()) as { enabled: boolean };
+    return data.enabled;
+}
+
+export async function getProfileAssignments(): Promise<ProfileAssignments> {
+    const response = await fetch(`${API_URL}/api/settings/profile-assignments`);
+    if (!response.ok) {
+        throw new Error("Failed to load profile assignments");
+    }
+    return response.json() as Promise<ProfileAssignments>;
+}
+
+export async function setProfileAssignments(
+    assignments: ProfileAssignments
+): Promise<ProfileAssignments> {
+    const response = await fetch(`${API_URL}/api/settings/profile-assignments`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(assignments),
+    });
+    if (!response.ok) {
+        throw new Error("Failed to save profile assignments");
+    }
+    return response.json() as Promise<ProfileAssignments>;
+}
+
+export async function getPreBellMinutes(): Promise<number> {
+    const response = await fetch(`${API_URL}/api/settings/pre-bell-minutes`);
+    if (!response.ok) {
+        throw new Error("Failed to load pre-bell setting");
+    }
+    const data = (await response.json()) as { minutes: number };
+    return data.minutes;
+}
+
+export async function setPreBellMinutes(minutes: number): Promise<number> {
+    const response = await fetch(`${API_URL}/api/settings/pre-bell-minutes`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ minutes }),
+    });
+    if (!response.ok) {
+        throw new Error("Failed to save pre-bell setting");
+    }
+
+    const data = (await response.json()) as { minutes: number };
+    return data.minutes;
+}
+
+export interface SyncedSettings {
+    preBellMinutes: number;
+    volume: number;
+    windows: {
+        openAtLogin: boolean;
+        openAsHidden: boolean;
+    };
+}
+
+export async function getSyncedSettings(): Promise<SyncedSettings> {
+    const response = await fetch(`${API_URL}/api/settings/synced`);
+    if (!response.ok) {
+        throw new Error("Failed to load synced settings");
+    }
+    return response.json() as Promise<SyncedSettings>;
+}
+
+export async function updateSyncedSettings(
+    changes: Partial<SyncedSettings>
+): Promise<SyncedSettings> {
+    const response = await fetch(`${API_URL}/api/settings/synced`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(changes),
+    });
+    if (!response.ok) {
+        throw new Error("Failed to save synced settings");
+    }
+    return response.json() as Promise<SyncedSettings>;
+}
+
+export async function verifyPin(pin: string): Promise<PinRole> {
+    const response = await fetch(`${API_URL}/api/settings/pins/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin }),
+    });
+    if (!response.ok) {
+        throw new Error("PIN kontroll ebaõnnestus");
+    }
+    const data = (await response.json()) as { role: PinRole };
+    return data.role;
+}
+
+export async function updatePins(
+    masterPin: string,
+    nextMasterPin: string,
+    nextPlayNowPin: string
+): Promise<void> {
+    const response = await fetch(`${API_URL}/api/settings/pins`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ masterPin, nextMasterPin, nextPlayNowPin }),
+    });
+    if (!response.ok) {
+        throw new Error("PIN-ide salvestamine ebaõnnestus");
+    }
+}
+
 
 // ============================================
 // PROFILES

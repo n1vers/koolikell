@@ -10,6 +10,7 @@ export interface AppLogEntry {
 
 const STORAGE_KEY = "schoolbell-app-logs";
 const MAX_LOGS = 250;
+let runtimeLoggingInstalled = false;
 
 function readLogs(): AppLogEntry[] {
     try {
@@ -27,6 +28,15 @@ export function getAppLogs(): AppLogEntry[] {
 
 export function clearAppLogs() {
     localStorage.removeItem(STORAGE_KEY);
+}
+
+export function installRuntimeLogging() {
+    if (runtimeLoggingInstalled) {
+        return;
+    }
+    runtimeLoggingInstalled = true;
+    window.addEventListener("online", () => writeAppLog("info", "Network connection restored"));
+    window.addEventListener("offline", () => writeAppLog("warn", "Network connection lost"));
 }
 
 export function writeAppLog(
@@ -54,6 +64,28 @@ export function writeAppLog(
             ...readLogs(),
         ].slice(0, MAX_LOGS))
     );
+
+    if (window.electronAPI?.writeLogFile) {
+        void window.electronAPI.writeLogFile({
+            timestamp: entry.timestamp,
+            level: entry.level,
+            message: entry.message,
+            details: entry.details,
+        }).catch((fileError) => {
+            console.error("Failed to write application log file:", fileError);
+        });
+    }
+
+    void fetch("/api/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            timestamp: entry.timestamp,
+            level: entry.level,
+            message: entry.message,
+            details: entry.details,
+        }),
+    }).catch(() => undefined);
 
     if (level === "error") {
         console.error(message, details);

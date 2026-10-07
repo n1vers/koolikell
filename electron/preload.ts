@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     getNtpTime: () =>
         ipcRenderer.invoke("time:ntp"),
 
+    getConnectionInfo: () =>
+        ipcRenderer.invoke("connection-info:get"),
+
     openSoundsFolder: () =>
         ipcRenderer.invoke(
             "sounds-folder:open"
@@ -27,6 +30,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
             "windows-settings:set",
             settings
         ),
+
+    writeLogFile: (entry: {
+        timestamp: string;
+        level: "info" | "warn" | "error";
+        message: string;
+        details?: string;
+    }) => ipcRenderer.invoke("logs:write", entry),
 
     onBell: (
         callback: (event: {

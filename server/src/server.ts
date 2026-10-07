@@ -2,6 +2,8 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import fs from "fs/promises";
+import os from "os";
+import crypto from "crypto";
 import Database from "better-sqlite3";
 import { createProxyMiddleware } from "http-proxy-middleware";
 
@@ -42,6 +44,140 @@ const HOST = process.env.HOST ?? "127.0.0.1";
 const FRONTEND_PORT = 5173;
 const FRONTEND_HOST = process.env.FRONTEND_HOST;
 const clientDistPath = process.env.CLIENT_DIST_PATH;
+const serverLogPath = path.join(process.cwd(), "koolikell-server.log");
+
+async function writeServerLog(
+    level: "info" | "warn" | "error",
+    message: string,
+    details?: unknown
+) {
+    const safeDetails =
+        details instanceof Error
+            ? details.stack ?? details.message
+            : details === undefined
+                ? undefined
+                : typeof details === "string"
+                    ? details
+                    : JSON.stringify(details);
+    const suffix = safeDetails === undefined ? "" : ` ${safeDetails}`;
+    try {
+        await fs.appendFile(
+            serverLogPath,
+            `${new Date().toISOString()} [${level.toUpperCase()}] ${message}${suffix}${os.EOL}`,
+            "utf8"
+        );
+    } catch (logError) {
+        console.error("Failed to write server log:", logError);
+    }
+}
+
+process.on("uncaughtException", (error) => {
+    void writeServerLog("error", "Uncaught server exception", error);
+});
+process.on("unhandledRejection", (reason) => {
+    void writeServerLog("error", "Unhandled server rejection", reason);
+});
+
+function hashPin(pin: string): string {
+    return crypto.createHash("sha256").update(pin).digest("hex");
+}
+
+function getPin(key: string, fallback: string): string {
+    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const row = database
+        .prepare('SELECT "value" FROM "AppSetting" WHERE "key" = ?')
+        .get(key) as { value?: string } | undefined;
+    database.close();
+    return row?.value ?? hashPin(fallback);
+}
+
+function setPin(key: string, pin: string): void {
+    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    database
+        .prepare(
+            'INSERT INTO "AppSetting" ("key", "value") VALUES (?, ?) ' +
+            'ON CONFLICT("key") DO UPDATE SET "value" = excluded."value"'
+        )
+        .run(key, hashPin(pin));
+    database.close();
+}
+
+function getServerConnectionInfo() {
+    const candidates: Array<{
+        address: string;
+        interfaceName: string;
+        priority: number;
+    }> = [];
+
+    for (const [interfaceName, entries] of Object.entries(os.networkInterfaces())) {
+        for (const entry of entries ?? []) {
+            if (
+                entry.family !== "IPv4" ||
+                entry.internal
+            ) {
+                continue;
+            }
+
+            const normalizedName = interfaceName.toLowerCase();
+            const isEthernet =
+                /ethernet|lan|以太网|локальн/.test(normalizedName);
+            const isWifi =
+                /wi-?fi|wireless|wlan|беспровод/.test(normalizedName);
+
+            candidates.push({
+                address: entry.address,
+                interfaceName,
+                priority: isEthernet ? 0 : isWifi ? 1 : 2,
+            });
+
+        }
+    }
+
+    const selected = candidates.sort(
+        (first, second) => first.priority - second.priority
+    )[0];
+
+    return {
+        address: selected?.address ?? null,
+        port: FRONTEND_PORT,
+        interfaceName: selected?.interfaceName ?? null,
+        connectionType:
+            selected?.priority === 0
+                ? "ethernet"
+                : selected?.priority === 1
+                    ? "wifi"
+                    : selected
+                        ? "other"
+                        : "none",
+    };
+}
+
+type PlayNowLoopMode = "off" | "track" | "playlist";
+interface PlayNowState {
+    revision: number;
+    action: "play" | "stop" | "loop" | "volume" | "select" | "position";
+    selectedFile: string | null;
+    playing: boolean;
+    loopMode: PlayNowLoopMode;
+    volume: number;
+    position: number;
+    startedAt: number | null;
+    playlist: string[];
+    updatedAt: number;
+}
+
+let playNowState: PlayNowState = {
+    revision: 0,
+    action: "stop",
+    selectedFile: null,
+    playing: false,
+    loopMode: "off",
+    volume: 80,
+    position: 0,
+    startedAt: null,
+    playlist: [],
+    updatedAt: Date.now(),
+};
 
 function initializeDatabase() {
     const database = new Database(
@@ -83,12 +219,52 @@ function initializeDatabase() {
                 FOREIGN KEY ("preBellSoundId") REFERENCES "Sound" ("id")
                 ON DELETE SET NULL ON UPDATE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS "AppSetting" (
+            "key" TEXT NOT NULL PRIMARY KEY,
+            "value" TEXT NOT NULL
+        );
+
+        INSERT OR IGNORE INTO "AppSetting" ("key", "value")
+        VALUES ('automaticEnabled', 'true');
+        INSERT OR IGNORE INTO "AppSetting" ("key", "value")
+        VALUES ('preBellMinutes', '2');
+        INSERT OR IGNORE INTO "AppSetting" ("key", "value")
+        VALUES ('volume', '80');
+        INSERT OR IGNORE INTO "AppSetting" ("key", "value")
+        VALUES ('windowsSettings', '{"openAtLogin":false,"openAsHidden":false}');
+
+        INSERT OR IGNORE INTO "AppSetting" ("key", "value")
+        VALUES ('masterPin', '${hashPin("1234")}');
+
+        INSERT OR IGNORE INTO "AppSetting" ("key", "value")
+        VALUES ('playNowPin', '${hashPin("5678")}');
     `);
 
     database.close();
 }
 
 initializeDatabase();
+
+function getAutomaticEnabled(): boolean {
+    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const row = database
+        .prepare('SELECT "value" FROM "AppSetting" WHERE "key" = ?')
+        .get("automaticEnabled") as { value?: string } | undefined;
+    database.close();
+    return row?.value !== "false";
+}
+
+function setAutomaticEnabled(enabled: boolean): void {
+    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    database
+        .prepare(
+            'INSERT INTO "AppSetting" ("key", "value") VALUES (?, ?) ' +
+            'ON CONFLICT("key") DO UPDATE SET "value" = excluded."value"'
+        )
+        .run("automaticEnabled", String(enabled));
+    database.close();
+}
 
 
 // =========================================
@@ -100,6 +276,64 @@ app.use(cors());
 app.use(
     express.json()
 );
+
+app.get("/api/settings/pins", (_req, res) => {
+    res.json({ configured: true });
+});
+
+app.post("/api/logs", (req, res) => {
+    const { timestamp, level, message, details } = req.body ?? {};
+    if (
+        typeof timestamp !== "string" ||
+        !["info", "warn", "error"].includes(level) ||
+        typeof message !== "string"
+    ) {
+        return res.status(400).json({ error: "Invalid log entry" });
+    }
+    void writeServerLog(level, `Client: ${message}`, {
+        timestamp,
+        details: typeof details === "string" ? details : undefined,
+    });
+    res.status(204).end();
+});
+
+app.post("/api/settings/pins/verify", (req, res) => {
+    const pin = typeof req.body?.pin === "string" ? req.body.pin : "";
+    if (!/^\d{4}$/.test(pin)) {
+        return res.status(400).json({ error: "PIN must contain four digits" });
+    }
+
+    const master = hashPin(pin) === getPin("masterPin", "1234");
+    const playNow = hashPin(pin) === getPin("playNowPin", "5678");
+    void writeServerLog(
+        master || playNow ? "info" : "warn",
+        "PIN verification attempt",
+        { role: master ? "master" : playNow ? "playnow" : null }
+    );
+    res.json({ role: master ? "master" : playNow ? "playnow" : null });
+});
+
+app.put("/api/settings/pins", (req, res) => {
+    const masterPin = typeof req.body?.masterPin === "string" ? req.body.masterPin : "";
+    const nextMasterPin = typeof req.body?.nextMasterPin === "string" ? req.body.nextMasterPin : "";
+    const nextPlayNowPin = typeof req.body?.nextPlayNowPin === "string" ? req.body.nextPlayNowPin : "";
+
+    if (
+        hashPin(masterPin) !== getPin("masterPin", "1234") ||
+        !/^\d{4}$/.test(nextMasterPin) ||
+        !/^\d{4}$/.test(nextPlayNowPin)
+    ) {
+        return res.status(400).json({ error: "Invalid PIN settings" });
+    }
+
+    setPin("masterPin", nextMasterPin);
+    setPin("playNowPin", nextPlayNowPin);
+    void writeServerLog("info", "PIN settings updated", {
+        masterChanged: true,
+        playNowChanged: true,
+    });
+    res.json({ saved: true });
+});
 
 
 // =========================================
@@ -137,12 +371,167 @@ app.get(
     }
 );
 
+app.get("/api/connection-info", (_req, res) => {
+    res.json(getServerConnectionInfo());
+});
+
+app.get("/api/settings/automatic", (_req, res) => {
+    res.json({ enabled: getAutomaticEnabled() });
+});
+
+app.put("/api/settings/automatic", (req, res) => {
+    if (typeof req.body?.enabled !== "boolean") {
+        return res.status(400).json({ error: "enabled must be boolean" });
+    }
+
+    setAutomaticEnabled(req.body.enabled);
+    res.json({ enabled: req.body.enabled });
+});
+
+function getSyncedSettings() {
+    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const rows = database
+        .prepare('SELECT "key", "value" FROM "AppSetting" WHERE "key" IN (?, ?, ?)')
+        .all("preBellMinutes", "volume", "windowsSettings") as Array<{ key: string; value: string }>;
+    database.close();
+    const values = new Map(rows.map((row) => [row.key, row.value]));
+    let windows = { openAtLogin: false, openAsHidden: false };
+    try {
+        windows = JSON.parse(values.get("windowsSettings") ?? JSON.stringify(windows)) as typeof windows;
+    } catch {
+        void writeServerLog("warn", "Invalid stored Windows settings");
+    }
+    return {
+        preBellMinutes: Math.max(0, Math.min(60, Number(values.get("preBellMinutes") ?? 2) || 2)),
+        volume: Math.max(0, Math.min(100, Number(values.get("volume") ?? 80) || 0)),
+        windows,
+    };
+}
+
+app.get("/api/settings/synced", (_req, res) => {
+    res.json(getSyncedSettings());
+});
+
+app.put("/api/settings/synced", (req, res) => {
+    const changes = req.body ?? {};
+    const current = getSyncedSettings();
+    const next = {
+        preBellMinutes: changes.preBellMinutes === undefined
+            ? current.preBellMinutes
+            : Number(changes.preBellMinutes),
+        volume: changes.volume === undefined ? current.volume : Number(changes.volume),
+        windows: changes.windows === undefined ? current.windows : changes.windows,
+    };
+    if (
+        !Number.isInteger(next.preBellMinutes) ||
+        next.preBellMinutes < 0 ||
+        next.preBellMinutes > 60 ||
+        !Number.isFinite(next.volume) ||
+        next.volume < 0 ||
+        next.volume > 100 ||
+        typeof next.windows?.openAtLogin !== "boolean" ||
+        typeof next.windows?.openAsHidden !== "boolean"
+    ) {
+        return res.status(400).json({ error: "Invalid synced settings" });
+    }
+    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const save = database.prepare(
+        'INSERT INTO "AppSetting" ("key", "value") VALUES (?, ?) ON CONFLICT("key") DO UPDATE SET "value" = excluded."value"'
+    );
+    save.run("preBellMinutes", String(next.preBellMinutes));
+    save.run("volume", String(next.volume));
+    save.run("windowsSettings", JSON.stringify(next.windows));
+    database.close();
+    void writeServerLog("info", "Synced settings updated", {
+        preBellMinutes: next.preBellMinutes,
+        volume: next.volume,
+        windows: next.windows,
+    });
+    res.json(next);
+});
+
+app.get("/api/settings/pre-bell-minutes", (_req, res) => {
+    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const row = database
+        .prepare('SELECT "value" FROM "AppSetting" WHERE "key" = ?')
+        .get("preBellMinutes") as { value?: string } | undefined;
+    database.close();
+    const minutes = Math.max(0, Math.min(60, Number(row?.value ?? 2) || 2));
+    res.json({ minutes });
+});
+
+app.put("/api/settings/pre-bell-minutes", (req, res) => {
+    const minutes = Number(req.body?.minutes);
+    if (!Number.isFinite(minutes) || minutes < 0 || minutes > 60) {
+        return res.status(400).json({ error: "minutes must be between 0 and 60" });
+    }
+    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    database.prepare(
+        'INSERT INTO "AppSetting" ("key", "value") VALUES (?, ?) ON CONFLICT("key") DO UPDATE SET "value" = excluded."value"'
+    ).run("preBellMinutes", String(Math.round(minutes)));
+    database.close();
+    res.json({ minutes: Math.round(minutes) });
+});
+
+app.get("/api/settings/profile-assignments", (_req, res) => {
+    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const rows = database
+        .prepare('SELECT "key", "value" FROM "AppSetting" WHERE "key" IN (?, ?)')
+        .all("profileByDay", "profileByDate") as Array<{ key: string; value: string }>;
+    database.close();
+
+    const values = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+    let profileByDay: Record<string, number | null> = {};
+    let profileByDate: Record<string, number | null> = {};
+
+    try {
+        if (values.profileByDay) {
+            profileByDay = JSON.parse(values.profileByDay) as Record<string, number | null>;
+        }
+        if (values.profileByDate) {
+            profileByDate = JSON.parse(values.profileByDate) as Record<string, number | null>;
+        }
+    } catch (error) {
+        console.error("Failed to parse profile assignments:", error);
+        return res.status(500).json({ error: "Invalid profile assignments" });
+    }
+
+    res.json({ profileByDay, profileByDate });
+});
+
+app.put("/api/settings/profile-assignments", (req, res) => {
+    if (
+        typeof req.body?.profileByDay !== "object" ||
+        typeof req.body?.profileByDate !== "object"
+    ) {
+        return res.status(400).json({ error: "Invalid profile assignments" });
+    }
+
+    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const save = database.prepare(
+        'INSERT INTO "AppSetting" ("key", "value") VALUES (?, ?) ' +
+        'ON CONFLICT("key") DO UPDATE SET "value" = excluded."value"'
+    );
+    const transaction = database.transaction(() => {
+        save.run("profileByDay", JSON.stringify(req.body.profileByDay));
+        save.run("profileByDate", JSON.stringify(req.body.profileByDate));
+    });
+    transaction();
+    database.close();
+
+    res.json({
+        profileByDay: req.body.profileByDay,
+        profileByDate: req.body.profileByDate,
+    });
+});
+
 app.get("/api/playnow", async (_req, res) => {
     try {
         const directory = path.join(process.cwd(), "playnow");
         const files = await fs.readdir(directory, {
             withFileTypes: true,
         });
+
         const allowed = /\.(mp3|wav|ogg)$/i;
 
         res.json(
@@ -161,6 +550,79 @@ app.get("/api/playnow", async (_req, res) => {
         console.error("Failed to load PlayNow tracks:", error);
         res.status(500).json({ error: "PlayNow lugemine ebaõnnestus" });
     }
+});
+
+app.get("/api/playnow/state", (_req, res) => {
+    res.json(playNowState);
+});
+
+app.put("/api/playnow/state", (req, res) => {
+    const {
+        action,
+        selectedFile,
+        playing,
+        loopMode,
+        volume,
+        position,
+        startedAt,
+        playlist,
+        baseRevision,
+    } = req.body ?? {};
+    const validAction = ["play", "stop", "loop", "volume", "select", "position"].includes(action);
+    const validLoop = ["off", "track", "playlist"].includes(loopMode);
+    if (
+        !validAction ||
+        (loopMode !== undefined && !validLoop) ||
+        (volume !== undefined &&
+            (!Number.isFinite(volume) || volume < 0 || volume > 100))
+    ) {
+        return res.status(400).json({ error: "Invalid PlayNow state" });
+    }
+    if (
+        action === "position" &&
+        Number.isFinite(baseRevision) &&
+        baseRevision < playNowState.revision
+    ) {
+        return res.json(playNowState);
+    }
+    if (action === "position" && !playNowState.playing) {
+        return res.json(playNowState);
+    }
+
+    const nextPlaying =
+        action === "position" && !playNowState.playing
+            ? false
+            : typeof playing === "boolean"
+                ? playing
+                : playNowState.playing;
+
+    playNowState = {
+        ...playNowState,
+        revision: playNowState.revision + 1,
+        action,
+        selectedFile:
+            typeof selectedFile === "string"
+                ? selectedFile
+                : playNowState.selectedFile,
+        playing: nextPlaying,
+        loopMode: loopMode ?? playNowState.loopMode,
+        volume: volume ?? playNowState.volume,
+        position:
+            typeof position === "number" && Number.isFinite(position) && position >= 0
+                ? position
+                : playNowState.position,
+        startedAt:
+            nextPlaying && typeof startedAt === "number" && Number.isFinite(startedAt)
+                ? startedAt
+                : !nextPlaying || startedAt === null
+                    ? null
+                    : playNowState.startedAt,
+        playlist: Array.isArray(playlist)
+            ? playlist.filter((fileName): fileName is string => typeof fileName === "string")
+            : playNowState.playlist,
+        updatedAt: Date.now(),
+    };
+    res.json(playNowState);
 });
 
 app.post(
@@ -909,9 +1371,9 @@ app.get(
                         0,
                         Math.min(
                             60,
-                            Number(
-                                req.query.preBellMinutes ?? 2
-                            ) || 2
+                            Number.isFinite(Number(req.query.preBellMinutes))
+                                ? Number(req.query.preBellMinutes)
+                                : getSyncedSettings().preBellMinutes
                         )
                     )
                 );
@@ -959,6 +1421,11 @@ app.get(
                 );
 
 
+            if (!getAutomaticEnabled()) {
+                res.json(null);
+                return;
+            }
+
             const nextEvent =
                 await getNextBellEvent(
                     profileId,
@@ -966,9 +1433,9 @@ app.get(
                         0,
                         Math.min(
                             60,
-                            Number(
-                                req.query.preBellMinutes ?? 2
-                            ) || 2
+                            Number.isFinite(Number(req.query.preBellMinutes))
+                                ? Number(req.query.preBellMinutes)
+                                : getSyncedSettings().preBellMinutes
                         )
                     )
                 );

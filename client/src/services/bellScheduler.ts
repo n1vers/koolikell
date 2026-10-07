@@ -1,4 +1,4 @@
-import { playBell } from "./bellAudio";
+import { playBell, stopBell } from "./bellAudio";
 import { writeAppLog } from "./logService";
 import { API_URL } from "../api/apiBase";
 
@@ -19,18 +19,24 @@ async function getNextBell() {
         return null;
     }
 
-    const assignments = JSON.parse(
-        localStorage.getItem("schoolbell-profile-by-day") ?? "{}"
-    ) as Record<string, number>;
+    const assignmentsResponse = await fetch(
+        `${API_URL}/api/settings/profile-assignments`
+    );
+    if (!assignmentsResponse.ok) {
+        throw new Error("Failed to load profile assignments");
+    }
+    const assignmentsData = (await assignmentsResponse.json()) as {
+        profileByDay: Record<string, number | null>;
+        profileByDate: Record<string, number | null>;
+    };
+    const assignments = assignmentsData.profileByDay;
     const date = new Date();
     const dateKey = [
         date.getFullYear(),
         String(date.getMonth() + 1).padStart(2, "0"),
         String(date.getDate()).padStart(2, "0"),
     ].join("-");
-    const dateAssignments = JSON.parse(
-        localStorage.getItem("schoolbell-profile-by-date") ?? "{}"
-    ) as Record<string, number>;
+    const dateAssignments = assignmentsData.profileByDate;
     const dateProfileId = Number(dateAssignments[dateKey]);
     const weeklyProfileId = Number(assignments[String(day)]);
     const profileId = Number.isInteger(dateProfileId) && dateProfileId > 0
@@ -58,14 +64,8 @@ async function getNextBell() {
                 : "Nädala ajakava"
         );
     }
-    const preBellMinutes = Number(
-        localStorage.getItem("schoolbell-pre-bell-minutes") ?? 2
-    );
-
     const response = await fetch(
-        `${API_URL}/api/profiles/${profileId}/next-event?preBellMinutes=${encodeURIComponent(
-            String(preBellMinutes)
-        )}`
+        `${API_URL}/api/profiles/${profileId}/next-event`
     );
 
     if (!response.ok) {
@@ -107,11 +107,15 @@ async function checkBell() {
 
     try {
 
+        if (!window.electronAPI) {
+            return;
+        }
+
         const event =
             await getNextBell();
 
-
         if (!event) {
+            stopBell();
             return;
         }
 

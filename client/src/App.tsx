@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
-import AudioSettings from "./components/AudioSettings";
-import AppLogs from "./components/AppLogs";
+import { useEffect, useRef, useState } from "react";
 import Dashboard from "./pages/Dashboard";
 import Sidebar from "./components/Sidebar";
 import Profiles from "./pages/Profiles";
 import ScheduleEditor from "./pages/ScheduleEditor";
 import SoundsPage from "./pages/SoundsPage";
 import PlayNowPage from "./pages/PlayNowPage";
+import Settings, {
+    type ConnectionInfo,
+    type WindowsSettings,
+} from "./pages/Settings";
 import type {
     Profile,
     Schedule,
@@ -17,7 +19,7 @@ import {
     startBellScheduler,
     stopBellScheduler,
 } from "./services/bellScheduler";
-import { writeAppLog } from "./services/logService";
+import { installRuntimeLogging, writeAppLog } from "./services/logService";
 
 import {
     getProfiles,
@@ -29,7 +31,17 @@ import {
     createSchedule,
     updateSchedule,
     deleteSchedule,
+    getAutomaticEnabled,
+    setAutomaticEnabled as updateAutomaticEnabled,
+    getProfileAssignments,
+    setProfileAssignments,
+    getSyncedSettings,
+    updateSyncedSettings,
+    updatePins,
+    verifyPin,
+    type PinRole,
 } from "./api/api";
+import { API_URL } from "./api/apiBase";
 
 type Page =
     | "dashboard"
@@ -39,12 +51,16 @@ type Page =
     | "settings"
     | "schedule-editor";
 
-interface WindowsSettings {
-    openAtLogin: boolean;
-    openAsHidden: boolean;
-}
 
 const WEEK_DAYS = [1, 2, 3, 4, 5, 6, 7];
+const ACCESS_ROLE_STORAGE_KEY = "schoolbell-access-role";
+
+function getStoredAccessRole(): PinRole {
+    const storedRole = sessionStorage.getItem(ACCESS_ROLE_STORAGE_KEY);
+    return storedRole === "master" || storedRole === "playnow"
+        ? storedRole
+        : null;
+}
 
 function getDateKey(date: Date) {
     const year = date.getFullYear();
@@ -64,8 +80,17 @@ export default function App() {
     // PAGE
     // =========================================
 
-    const [currentPage, setCurrentPage] =
-        useState<Page>("dashboard");
+    const [accessRole, setAccessRole] = useState<PinRole>(getStoredAccessRole);
+    const [currentPage, setCurrentPage] = useState<Page>(() =>
+        getStoredAccessRole() === "playnow" ? "playnow" : "dashboard"
+    );
+    const [pinPrompt, setPinPrompt] = useState<"master" | "playnow" | null>(null);
+    const [pendingPage, setPendingPage] = useState<"profiles" | "sounds" | "settings" | "playnow">("profiles");
+    const [pinValue, setPinValue] = useState("");
+    const [pinError, setPinError] = useState("");
+    const [currentMasterPin, setCurrentMasterPin] = useState("");
+    const [nextMasterPin, setNextMasterPin] = useState("");
+    const [playNowPin, setPlayNowPin] = useState("");
 
 
     // =========================================
@@ -117,6 +142,7 @@ export default function App() {
 
     const [error, setError] =
         useState("");
+    const refreshInFlight = useRef(false);
 
     const [automaticEnabled, setAutomaticEnabled] =
         useState(
@@ -140,6 +166,8 @@ export default function App() {
             openAtLogin: false,
             openAsHidden: false,
         });
+    const [connectionInfo, setConnectionInfo] =
+        useState<ConnectionInfo | null>(null);
 
 
     // =========================================
@@ -147,8 +175,23 @@ export default function App() {
     // =========================================
 
     useEffect(() => {
-        loadData();
+        installRuntimeLogging();
+        writeAppLog("info", "Frontend session started", {
+            userAgent: navigator.userAgent,
+            language: navigator.language,
+            online: navigator.onLine,
+            screen: `${window.screen.width}x${window.screen.height}`,
+            electron: Boolean(window.electronAPI),
+        });
+        void loadData(true);
 
+    }, []);
+
+    useEffect(() => {
+        const timer = window.setInterval(() => {
+            void loadData();
+        }, 2000);
+        return () => window.clearInterval(timer);
     }, []);
 
     useEffect(() => {
@@ -182,27 +225,120 @@ export default function App() {
         return () => stopBellScheduler();
     }, [automaticEnabled]);
 
-    function handleToggleAutomatic() {
-        setAutomaticEnabled((current) => {
-            const next = !current;
+    useEffect(() => {
+        const canViewCurrentPage =
+            currentPage === "dashboard" ||
+            (accessRole === "master") ||
+            (accessRole === "playnow" && currentPage === "playnow");
 
+        if (accessRole === "playnow" && currentPage !== "playnow") {
+            setCurrentPage("playnow");
+            setSelectedProfile(null);
+            return;
+        }
+
+        if (!canViewCurrentPage) {
+            setCurrentPage("dashboard");
+            setSelectedProfile(null);
+        }
+    }, [accessRole, currentPage]);
+
+    useEffect(() => {
+        if (accessRole === null) {
+            sessionStorage.removeItem(ACCESS_ROLE_STORAGE_KEY);
+        } else {
+            sessionStorage.setItem(ACCESS_ROLE_STORAGE_KEY, accessRole);
+        }
+    }, [accessRole]);
+
+    async function handleToggleAutomatic() {
+        if (accessRole !== "master") {
+            return;
+        }
+
+        const next = !automaticEnabled;
+        try {
+            const saved = await updateAutomaticEnabled(next);
+            setAutomaticEnabled(saved);
             localStorage.setItem(
                 "schoolbell-automatic-enabled",
-                String(next)
+                String(saved)
             );
-
-            return next;
-        });
+        } catch (toggleError) {
+            writeAppLog("error", "Automatic calling setting update failed", toggleError);
+            setError("Automaatsete kГµnede seadistuse muutmine ebaГµnnestus");
+        }
     }
 
-    function handlePreBellMinutesChange(value: number) {
+    async function handlePreBellMinutesChange(value: number) {
         const next = Math.max(0, Math.min(60, value));
 
         setPreBellMinutes(next);
-        localStorage.setItem(
-            "schoolbell-pre-bell-minutes",
-            String(next)
-        );
+        try {
+            const synced = await updateSyncedSettings({ preBellMinutes: next });
+            const saved = synced.preBellMinutes;
+            setPreBellMinutes(saved);
+            localStorage.setItem("schoolbell-pre-bell-minutes", String(saved));
+        } catch (saveError) {
+            writeAppLog("error", "Pre-bell setting update failed", saveError);
+            setError("Predzvoni seadistuse salvestamine ebaГµnnestus");
+        }
+    }
+
+    function requestNavigation(page: "dashboard" | "profiles" | "sounds" | "playnow" | "settings") {
+        if (accessRole === "playnow") {
+            return;
+        }
+        if (page === "dashboard" || accessRole === "master") {
+            setCurrentPage(page);
+            return;
+        }
+        setPinPrompt(page === "playnow" ? "playnow" : "master");
+        setPendingPage(page);
+        setPinValue("");
+        setPinError("");
+    }
+
+    function handleLogout() {
+        setAccessRole(null);
+        sessionStorage.removeItem(ACCESS_ROLE_STORAGE_KEY);
+        setCurrentPage("dashboard");
+        setSelectedProfile(null);
+        setPinPrompt(null);
+        setPinValue("");
+        setPinError("");
+    }
+
+    async function submitPin() {
+        try {
+            const role = await verifyPin(pinValue);
+            if (role === null || (pinPrompt === "playnow" && role !== "playnow" && role !== "master")) {
+                setPinError("Vale PIN");
+                return;
+            }
+            setAccessRole(role);
+            setCurrentPage(
+                role === "playnow" ? "playnow" : pendingPage
+            );
+            setPinPrompt(null);
+            setPinValue("");
+        } catch (pinErrorValue) {
+            writeAppLog("error", "PIN verification failed", pinErrorValue);
+            setPinError("PIN-i kontroll ebaГµnnestus");
+        }
+    }
+
+    async function savePinSettings(event: React.FormEvent<HTMLFormElement>) {
+        event.preventDefault();
+        try {
+            await updatePins(currentMasterPin, nextMasterPin, playNowPin);
+            setCurrentMasterPin("");
+            setNextMasterPin("");
+            setPlayNowPin("");
+            setError("PIN-id salvestatud");
+        } catch (saveError) {
+            setError(saveError instanceof Error ? saveError.message : "PIN-ide salvestamine ebaГµnnestus");
+        }
     }
 
     useEffect(() => {
@@ -218,27 +354,85 @@ export default function App() {
             return;
         }
 
-        const loadWindowsSettings = async () => {
-            if (window.electronAPI) {
-                const settings =
-                    await window.electronAPI.getWindowsSettings();
+        let disposed = false;
 
-                setWindowsSettings(settings);
-                return;
+        const loadSyncedSettings = async () => {
+            try {
+                const settings = await getSyncedSettings();
+                if (disposed) {
+                    return;
+                }
+                setPreBellMinutes(settings.preBellMinutes);
+                localStorage.setItem("schoolbell-pre-bell-minutes", String(settings.preBellMinutes));
+                setWindowsSettings(settings.windows);
+                if (window.electronAPI) {
+                    await window.electronAPI.setWindowsSettings(settings.windows);
+                }
+            } catch (loadError) {
+                if (!disposed) {
+                    writeAppLog("error", "Pre-bell setting sync failed", loadError);
+                }
             }
+        };
 
-            const saved = localStorage.getItem(
-                "schoolbell-windows-settings"
-            );
+        void loadSyncedSettings();
+        const syncedSettingsTimer = window.setInterval(() => {
+            void loadSyncedSettings();
+        }, 3000);
 
-            if (saved) {
-                setWindowsSettings(
-                    JSON.parse(saved) as WindowsSettings
+        const loadWindowsSettings = async () => {
+            try {
+                if (window.electronAPI) {
+                    const settings =
+                        await window.electronAPI.getWindowsSettings();
+                    setWindowsSettings(settings);
+
+                    if (window.electronAPI.getConnectionInfo) {
+                        try {
+                            setConnectionInfo(
+                                await window.electronAPI.getConnectionInfo()
+                            );
+                            return;
+                        } catch (connectionError) {
+                            console.warn(
+                                "Electron connection info unavailable, using server fallback:",
+                                connectionError
+                            );
+                        }
+                    }
+                } else {
+                    const saved = localStorage.getItem(
+                        "schoolbell-windows-settings"
+                    );
+
+                    if (saved) {
+                        setWindowsSettings(
+                            JSON.parse(saved) as WindowsSettings
+                        );
+                    }
+                }
+
+                const response = await fetch(
+                    `${API_URL}/api/connection-info`
+                );
+                if (response.ok) {
+                    setConnectionInfo(
+                        (await response.json()) as ConnectionInfo
+                    );
+                }
+            } catch (loadError) {
+                console.error(
+                    "Failed to load connection information:",
+                    loadError
                 );
             }
         };
 
         void loadWindowsSettings();
+        return () => {
+            disposed = true;
+            window.clearInterval(syncedSettingsTimer);
+        };
     }, [currentPage]);
 
     async function updateWindowsSetting(
@@ -255,6 +449,13 @@ export default function App() {
             "schoolbell-windows-settings",
             JSON.stringify(next)
         );
+        try {
+            const synced = await updateSyncedSettings({ windows: next });
+            setWindowsSettings(synced.windows);
+        } catch (saveError) {
+            writeAppLog("error", "Windows settings synchronization failed", saveError);
+            setError("Windowsi seadistuse sünkroonimine ebaõnnestus");
+        }
 
         if (window.electronAPI) {
             await window.electronAPI.setWindowsSettings(next);
@@ -308,90 +509,52 @@ export default function App() {
     ]);
 
 
-useEffect(() => {
+    useEffect(() => {
+        if (!window.electronAPI) {
+            console.log("Electron API unavailable");
 
-    if (
-        !window.electronAPI
-    ) {
+            return;
+        }
 
-        console.log(
-            "Electron API unavailable"
-        );
+        const unsubscribe = window.electronAPI.onBell((event) => {
+            console.log("рџ”” Bell received:", event);
 
-        return;
+            if (!event.soundUrl) {
+                console.warn("No sound assigned to this schedule");
 
-    }
-
-
-    const unsubscribe =
-        window.electronAPI.onBell(
-            (event) => {
-
-                console.log(
-                    "🔔 Bell received:",
-                    event
-                );
-
-
-                if (
-                    !event.soundUrl
-                ) {
-
-                    console.warn(
-                        "No sound assigned to this schedule"
-                    );
-
-                    return;
-
-                }
-
-
-                const audio =
-                    new Audio(
-                        event.soundUrl
-                    );
-
-
-                audio.volume = 1;
-
-
-                audio.play()
-                    .then(
-                        () => {
-
-                            console.log(
-                                `🔊 Playing ${event.type}`
-                            );
-
-                        }
-                    )
-                    .catch(
-                        (error) => {
-
-                            console.error(
-                                "Failed to play sound:",
-                                error
-                            );
-
-                        }
-                    );
-
+                return;
             }
-        );
 
+            const audio = new Audio(event.soundUrl);
 
-    return () => {
+            audio.volume = 1;
 
-        unsubscribe();
+            audio
+                .play()
+                .then(() => {
+                    console.log(`рџ”Љ Playing ${event.type}`);
+                })
+                .catch((error) => {
+                    console.error("Failed to play sound:", error);
+                });
+        });
 
-    };
+        return () => {
+            unsubscribe();
+        };
+    }, []);
 
-}, []);
+    async function loadData(initialLoad = false) {
+        if (refreshInFlight.current) {
+            return;
+        }
 
-    async function loadData() {
+        refreshInFlight.current = true;
         try {
-            setLoading(true);
-            setError("");
+            if (initialLoad) {
+                setLoading(true);
+                setError("");
+            }
 
             // -----------------------------
             // Profiles
@@ -404,44 +567,48 @@ useEffect(() => {
                 profilesData
             );
 
-            const savedAssignments =
-                JSON.parse(
-                    localStorage.getItem(
-                        "schoolbell-profile-by-day"
-                    ) ?? "{}"
-                ) as Record<string, number>;
-
-            const assignments = WEEK_DAYS.reduce(
-                (result, day) => {
-                    const profileId =
-                        savedAssignments[String(day)];
-
-                    result[day] = profilesData.some(
-                        (profile) => profile.id === profileId
-                    )
-                        ? profileId
-                        : profilesData[0]?.id ?? null;
-
-                    return result;
-                },
-                {} as Record<number, number | null>
+            const [savedAssignments, serverAutomaticEnabled] = await Promise.all([
+                getProfileAssignments(),
+                getAutomaticEnabled(),
+            ]);
+            const localProfileByDay = JSON.parse(
+                localStorage.getItem("schoolbell-profile-by-day") ?? "{}"
+            ) as Record<string, number | null>;
+            const localProfileByDate = JSON.parse(
+                localStorage.getItem("schoolbell-profile-by-date") ?? "{}"
+            ) as Record<string, number | null>;
+            const hasServerAssignments =
+                Object.keys(savedAssignments.profileByDay).length > 0 ||
+                Object.keys(savedAssignments.profileByDate).length > 0;
+            const assignments = hasServerAssignments
+                ? savedAssignments
+                : {
+                    profileByDay: localProfileByDay,
+                    profileByDate: localProfileByDate,
+                };
+            if (!hasServerAssignments && (
+                Object.keys(localProfileByDay).length > 0 ||
+                Object.keys(localProfileByDate).length > 0
+            )) {
+                void setProfileAssignments(assignments).catch((migrationError) => {
+                    writeAppLog("error", "Profile assignment migration failed", migrationError);
+                });
+            }
+            setAutomaticEnabled(serverAutomaticEnabled);
+            localStorage.setItem(
+                "schoolbell-automatic-enabled",
+                String(serverAutomaticEnabled)
             );
-
-            setProfileByDay(assignments);
-
+            setProfileByDay(assignments.profileByDay);
+            setProfileByDate(assignments.profileByDate);
             localStorage.setItem(
                 "schoolbell-profile-by-day",
-                JSON.stringify(assignments)
+                JSON.stringify(assignments.profileByDay)
             );
-
-            const savedDateAssignments =
-                JSON.parse(
-                    localStorage.getItem(
-                        "schoolbell-profile-by-date"
-                    ) ?? "{}"
-                ) as Record<string, number>;
-
-            setProfileByDate(savedDateAssignments);
+            localStorage.setItem(
+                "schoolbell-profile-by-date",
+                JSON.stringify(assignments.profileByDate)
+            );
 
 
             // -----------------------------
@@ -506,61 +673,66 @@ useEffect(() => {
                 error
             );
 
-            setError(
-                "Andmete laadimine ebaõnnestus"
-            );
+            if (initialLoad) {
+                setError(
+                    "Andmete laadimine ebaГµnnestus"
+                );
+            }
             writeAppLog(
                 "error",
-                "Andmete laadimine ebaõnnestus",
+                "Andmete laadimine ebaГµnnestus",
                 error
             );
         } finally {
-            setLoading(false);
+            refreshInFlight.current = false;
+            if (initialLoad) {
+                setLoading(false);
+            }
         }
     }
 
-    function handleAssignProfile(
+    async function handleAssignProfile(
         day: number,
         profileId: number | null
     ) {
-        setProfileByDay((current) => {
-            const next = {
-                ...current,
-                [day]: profileId,
-            };
-
-            localStorage.setItem(
-                "schoolbell-profile-by-day",
-                JSON.stringify(next)
-            );
-
-            return next;
-        });
+        const next = {
+            ...profileByDay,
+            [day]: profileId,
+        };
+        setProfileByDay(next);
+        try {
+            await setProfileAssignments({
+                profileByDay: next,
+                profileByDate,
+            });
+        } catch (assignmentError) {
+            writeAppLog("error", "Weekly profile assignment update failed", assignmentError);
+        }
+        /* localStorage remains a fallback for the bell scheduler during startup. */
+        localStorage.setItem("schoolbell-profile-by-day", JSON.stringify(next));
     }
 
-    function handleAssignDate(
+    async function handleAssignDate(
         date: string,
         profileId: number | null
     ) {
-        setProfileByDate((current) => {
-            const next = {
-                ...current,
-                [date]: profileId,
-            };
-
-            if (profileId === null) {
-                delete next[date];
-            }
-
-            localStorage.setItem(
-                "schoolbell-profile-by-date",
-                JSON.stringify(next)
-            );
-
-            return next;
-        });
+        const next = { ...profileByDate };
+        if (profileId === null) {
+            delete next[date];
+        } else {
+            next[date] = profileId;
+        }
+        setProfileByDate(next);
+        try {
+            await setProfileAssignments({
+                profileByDay,
+                profileByDate: next,
+            });
+        } catch (assignmentError) {
+            writeAppLog("error", "Calendar profile assignment update failed", assignmentError);
+        }
+        localStorage.setItem("schoolbell-profile-by-date", JSON.stringify(next));
     }
-
 
     // =========================================
     // CREATE PROFILE
@@ -708,6 +880,14 @@ useEffect(() => {
     function handleOpenProfile(
         profile: Profile
     ) {
+        if (accessRole !== "master") {
+            setPinPrompt("master");
+            setPendingPage("profiles");
+            setPinValue("");
+            setPinError("");
+            return;
+        }
+
         setSelectedProfile(
             profile
         );
@@ -738,57 +918,57 @@ useEffect(() => {
     // =========================================
 
     async function handleAddSchedule(
-    time: string,
-    preBellEnabled: boolean,
-    soundId: number | null,
-    preBellSoundId: number | null
-) {
-    if (!selectedProfile) {
-        return;
-    }
+        time: string,
+        preBellEnabled: boolean,
+        soundId: number | null,
+        preBellSoundId: number | null
+    ) {
+        if (!selectedProfile) {
+            return;
+        }
 
-    try {
-        const dayOfWeek = 1;
+        try {
+            const dayOfWeek = 1;
 
-        const createdSchedule =
-            await createSchedule(
-                selectedProfile.id,
-                dayOfWeek,
-                time,
-                "LESSON_START",
-                preBellEnabled,
-                soundId,
-                preBellSoundId
+            const createdSchedule =
+                await createSchedule(
+                    selectedProfile.id,
+                    dayOfWeek,
+                    time,
+                    "LESSON_START",
+                    preBellEnabled,
+                    soundId,
+                    preBellSoundId
+                );
+
+            setSchedulesByProfile(
+                (current) => ({
+                    ...current,
+
+                    [selectedProfile.id]: [
+                        ...(current[
+                            selectedProfile.id
+                        ] ?? []),
+
+                        createdSchedule,
+                    ],
+                })
             );
 
-        setSchedulesByProfile(
-            (current) => ({
-                ...current,
-
-                [selectedProfile.id]: [
-                    ...(current[
-                        selectedProfile.id
-                    ] ?? []),
-
+            setSchedules(
+                (current) => [
+                    ...current,
                     createdSchedule,
-                ],
-            })
-        );
+                ]
+            );
 
-        setSchedules(
-            (current) => [
-                ...current,
-                createdSchedule,
-            ]
-        );
-
-    } catch (error) {
-        console.error(
-            "Failed to create schedule:",
-            error
-        );
+        } catch (error) {
+            console.error(
+                "Failed to create schedule:",
+                error
+            );
+        }
     }
-}
 
 
     // =========================================
@@ -796,70 +976,70 @@ useEffect(() => {
     // =========================================
 
     async function handleUpdateSchedule(
-    schedule: Schedule
-) {
-    if (!selectedProfile) {
-        return;
-    }
+        schedule: Schedule
+    ) {
+        if (!selectedProfile) {
+            return;
+        }
 
-    try {
-        const updatedSchedule =
-            await updateSchedule(
-                schedule.id,
+        try {
+            const updatedSchedule =
+                await updateSchedule(
+                    schedule.id,
 
-                Number(
-                    schedule.dayOfWeek
-                ),
+                    Number(
+                        schedule.dayOfWeek
+                    ),
 
-                schedule.time,
+                    schedule.time,
 
-                "LESSON_START",
+                    "LESSON_START",
 
-                schedule.enabled,
+                    schedule.enabled,
 
-                schedule.preBellEnabled,
+                    schedule.preBellEnabled,
 
                     schedule.soundId ?? null,
                     schedule.preBellSoundId ?? null
+                );
+
+            setSchedulesByProfile(
+                (current) => ({
+                    ...current,
+
+                    [selectedProfile.id]:
+                        (
+                            current[
+                                selectedProfile.id
+                            ] ?? []
+                        ).map(
+                            (item) =>
+                                item.id ===
+                                updatedSchedule.id
+                                    ? updatedSchedule
+                                    : item
+                        ),
+                })
             );
 
-        setSchedulesByProfile(
-            (current) => ({
-                ...current,
-
-                [selectedProfile.id]:
-                    (
-                        current[
-                            selectedProfile.id
-                        ] ?? []
-                    ).map(
+            setSchedules(
+                (current) =>
+                    current.map(
                         (item) =>
                             item.id ===
                             updatedSchedule.id
                                 ? updatedSchedule
                                 : item
-                    ),
-            })
-        );
+                    )
+            );
 
-        setSchedules(
-            (current) =>
-                current.map(
-                    (item) =>
-                        item.id ===
-                        updatedSchedule.id
-                            ? updatedSchedule
-                            : item
-                )
-        );
-
-    } catch (error) {
-        console.error(
-            "Failed to update schedule:",
-            error
-        );
+        } catch (error) {
+            console.error(
+                "Failed to update schedule:",
+                error
+            );
+        }
     }
-}
 
 
     // =========================================
@@ -934,12 +1114,12 @@ useEffect(() => {
 
     async function handleSaveSchedules() {
         /*
-         * Сейчас изменения расписания
-         * отправляются в API сразу
-         * при изменении.
+         * РЎРµР№С‡Р°СЃ РёР·РјРµРЅРµРЅРёСЏ СЂР°СЃРїРёСЃР°РЅРёСЏ
+         * РѕС‚РїСЂР°РІР»СЏСЋС‚СЃСЏ РІ API СЃСЂР°Р·Сѓ
+         * РїСЂРё РёР·РјРµРЅРµРЅРёРё.
          *
-         * Поэтому здесь достаточно
-         * обновить данные.
+         * РџРѕСЌС‚РѕРјСѓ Р·РґРµСЃСЊ РґРѕСЃС‚Р°С‚РѕС‡РЅРѕ
+         * РѕР±РЅРѕРІРёС‚СЊ РґР°РЅРЅС‹Рµ.
          */
 
         await loadData();
@@ -960,8 +1140,8 @@ useEffect(() => {
         schedule: Schedule
     ) {
         /*
-         * Найдём профиль,
-         * которому принадлежит расписание.
+         * РќР°Р№РґС‘Рј РїСЂРѕС„РёР»СЊ,
+         * РєРѕС‚РѕСЂРѕРјСѓ РїСЂРёРЅР°РґР»РµР¶РёС‚ СЂР°СЃРїРёСЃР°РЅРёРµ.
          */
 
         let profileForSchedule:
@@ -1013,19 +1193,15 @@ useEffect(() => {
 
     if (loading) {
         return (
-            <div
-                className="
-                    flex
-                    min-h-screen
-                    items-center
-                    justify-center
-                    bg-[#f5f7fb]
-                    font-['Inter']
-                    text-[#647085]
-                "
-            >
-                Laadimine...
+            <div className="flex min-h-screen flex-col items-center justify-center gap-[16px] bg-[#f5f7fb] font-['Inter'] text-[#647085]">
+                <div
+                    className="h-[32px] w-[32px] animate-spin rounded-full border-[3px] border-[#dbe3f0] border-t-[#5798f5]"
+                    aria-hidden="true"
+                />
+
+                <span className="text-[14px]">Laadimine...</span>
             </div>
+
         );
     }
 
@@ -1036,18 +1212,25 @@ useEffect(() => {
 
     if (error) {
         return (
-            <div
-                className="
-                    flex
-                    min-h-screen
-                    items-center
-                    justify-center
-                    bg-[#f5f7fb]
-                    font-['Inter']
-                    text-[#647085]
-                "
-            >
-                {error}
+            <div className="flex min-h-screen items-center justify-center bg-[#f5f7fb] p-[24px] font-['Inter']">
+                <div
+                    role="alert"
+                    className="w-[420px] max-w-full rounded-[16px] bg-white p-[28px] text-center shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+                >
+                    <div className="mx-auto mb-[14px] flex h-[44px] w-[44px] items-center justify-center rounded-full bg-[#fdecec] text-[22px] font-semibold text-[#d64545]">
+                        !
+                    </div>
+
+                    <p className="m-0 text-[15px] text-[#1b212d]">{error}</p>
+
+                    <button
+                        type="button"
+                        onClick={() => void loadData(true)}
+                        className="mt-[20px] h-[40px] rounded-[10px] bg-[#5798f5] px-[20px] text-[14px] font-medium text-white shadow-[0_1px_3px_rgba(87,152,245,0.35)] transition hover:bg-[#4688e7]"
+                    >
+                        Proovi uuesti
+                    </button>
+                </div>
             </div>
         );
     }
@@ -1074,9 +1257,15 @@ useEffect(() => {
                 currentPage={
                     currentPage
                 }
-                onNavigate={
-                    setCurrentPage
-                }
+                onNavigate={requestNavigation}
+                accessRole={accessRole}
+                onLogout={handleLogout}
+                onRequestPin={() => {
+                    setPinPrompt("master");
+                    setPendingPage("profiles");
+                    setPinValue("");
+                    setPinError("");
+                }}
             />
 
 
@@ -1106,6 +1295,10 @@ useEffect(() => {
 
                     onEditSchedule={
                         handleEditSchedule
+                    }
+
+                    canManage={
+                        accessRole === "master"
                     }
                 />
             )}
@@ -1212,141 +1405,68 @@ useEffect(() => {
             {/* ================================= */}
 
             {currentPage === "sounds" && (
-    <SoundsPage />
-)}
-
-            {currentPage === "playnow" && (
-                <PlayNowPage />
+                <SoundsPage />
             )}
+
+            <div className={currentPage === "playnow" ? "" : "hidden"}>
+                <PlayNowPage />
+            </div>
 
 
             {/* ================================= */}
             {/* SETTINGS */}
             {/* ================================= */}
 
-            {currentPage ===
-                "settings" && (
-                <main className="ml-[240px] min-h-screen bg-[#f5f7fb] px-[clamp(24px,4vw,64px)] py-[56px] font-['Inter']">
-                    <header className="mb-[32px] max-w-[720px]">
-                        <p className="mb-[8px] text-[12px] font-medium uppercase tracking-[0.08em] text-[#647085]">
-                            RAKENDUS
-                        </p>
-                        <h1 className="m-0 text-[32px] font-semibold leading-[1.15] text-[#1b212d]">
-                            Seaded
-                        </h1>
-                        <p className="mt-[10px] text-[15px] leading-[24px] text-[#647085]">
-                            Kohanda heli ja Windowsi käitumist.
-                        </p>
-                    </header>
+            {currentPage === "settings" && (
+                <Settings
+                    preBellMinutes={preBellMinutes}
+                    windowsSettings={windowsSettings}
+                    connectionInfo={connectionInfo}
+                    currentMasterPin={currentMasterPin}
+                    nextMasterPin={nextMasterPin}
+                    playNowPin={playNowPin}
+                    onPreBellMinutesChange={handlePreBellMinutesChange}
+                    onWindowsSettingChange={updateWindowsSetting}
+                    onPinChange={(key, value) => {
+                        if (key === "currentMaster") setCurrentMasterPin(value);
+                        if (key === "nextMaster") setNextMasterPin(value);
+                        if (key === "playNow") setPlayNowPin(value);
+                    }}
+                    onSavePins={(event) => void savePinSettings(event)}
+                />
+            )}
 
-                    <div className="grid w-full max-w-[960px] gap-[18px] xl:grid-cols-2">
-                        <section className="rounded-[14px] border border-[#e5e9f0] bg-white p-[24px] shadow-[0_8px_24px_rgba(27,33,45,0.04)]">
-                            <h2 className="m-0 text-[18px] font-semibold text-[#1b212d]">
-                                Heli
-                            </h2>
-                            <p className="mb-[24px] mt-[8px] text-[14px] leading-[22px] text-[#647085]">
-                                Vali heliväljund ja helitugevus.
-                            </p>
-                            <AudioSettings />
-
-                            <div className="mt-[24px] border-t border-[#eef1f5] pt-[20px]">
-                                <label className="block text-[14px] font-medium text-[#1f2937]">
-                                    Predzvoni aeg
-                                </label>
-                                <p className="mt-[5px] text-[13px] leading-[20px] text-[#7b8494]">
-                                    Mitu minutit enne kella predzvon mängib.
-                                </p>
-                                <div className="mt-[10px] flex items-center gap-[8px]">
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        max="60"
-                                        value={preBellMinutes}
-                                        onChange={(event) =>
-                                            handlePreBellMinutesChange(
-                                                Number(event.target.value)
-                                            )
-                                        }
-                                        className="h-[38px] w-[90px] rounded-[8px] border border-[#d9dee8] px-[10px] text-[14px] text-[#1f2937] outline-none focus:border-[#529eff]"
-                                    />
-                                    <span className="text-[13px] text-[#647085]">min</span>
-                                </div>
-                            </div>
-                        </section>
-
-                        <section className="rounded-[14px] border border-[#e5e9f0] bg-white p-[24px] shadow-[0_8px_24px_rgba(27,33,45,0.04)]">
-                            <h2 className="m-0 text-[18px] font-semibold text-[#1b212d]">
-                                Windows
-                            </h2>
-                            <p className="mb-[18px] mt-[8px] text-[14px] leading-[22px] text-[#647085]">
-                                Määra, kuidas koolikell Windowsis käivitub.
-                            </p>
-
-                            <label className="flex cursor-pointer items-start justify-between gap-[20px] border-b border-[#eef1f5] py-[16px]">
-                                <span>
-                                    <span className="block text-[14px] font-medium text-[#1b212d]">
-                                        Käivita Windowsiga
-                                    </span>
-                                    <span className="mt-[4px] block text-[13px] leading-[20px] text-[#7b8494]">
-                                        Ava koolikell automaatselt pärast sisselogimist.
-                                    </span>
-                                </span>
-                                <input
-                                    type="checkbox"
-                                    checked={windowsSettings.openAtLogin}
-                                    onChange={(event) =>
-                                        void updateWindowsSetting(
-                                            "openAtLogin",
-                                            event.target.checked
-                                        )
-                                    }
-                                    className="mt-[3px] h-[18px] w-[18px] accent-[#529eff]"
-                                />
-                            </label>
-
-                            <label className="flex cursor-pointer items-start justify-between gap-[20px] py-[16px]">
-                                <span>
-                                    <span className="block text-[14px] font-medium text-[#1b212d]">
-                                        Käivita minimeeritult
-                                    </span>
-                                    <span className="mt-[4px] block text-[13px] leading-[20px] text-[#7b8494]">
-                                        Käivitub taustal ilma akent avamata.
-                                    </span>
-                                </span>
-                                <input
-                                    type="checkbox"
-                                    checked={windowsSettings.openAsHidden}
-                                    onChange={(event) =>
-                                        void updateWindowsSetting(
-                                            "openAsHidden",
-                                            event.target.checked
-                                        )
-                                    }
-                                    className="mt-[3px] h-[18px] w-[18px] accent-[#529eff]"
-                                />
-                            </label>
-                        </section>
-                    </div>
-
-                    <section className="mt-[18px] w-full max-w-[960px] rounded-[14px] border border-[#e5e9f0] bg-white p-[24px] shadow-[0_8px_24px_rgba(27,33,45,0.04)]">
-                        <h2 className="m-0 text-[18px] font-semibold text-[#1b212d]">
-                            Avatud lähtekoodiga projekt
+            {pinPrompt && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 px-[20px]">
+                    <form
+                        onSubmit={(event) => {
+                            event.preventDefault();
+                            void submitPin();
+                        }}
+                        className="w-full max-w-[360px] rounded-[16px] bg-white p-[24px] shadow-[0_18px_60px_rgba(0,0,0,0.2)]"
+                    >
+                        <h2 className="m-0 text-[20px] font-semibold text-[#1b212d]">
+                            {pinPrompt === "playnow" ? "PlayNow PIN" : "Meister-PIN"}
                         </h2>
-                        <p className="mt-[8px] text-[14px] leading-[22px] text-[#647085]">
-                            koolikell on avatud lähtekoodiga projekt.
+                        <p className="mt-[8px] text-[13px] text-[#647085]">
+                            Sisesta neljakohaline PIN juurdepГ¤Г¤su avamiseks.
                         </p>
-                        <a
-                            href="https://github.com/n1vers/koolikell"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="mt-[12px] inline-block text-[14px] font-medium text-[#397ed8] underline underline-offset-[3px] hover:text-[#2465b8]"
-                        >
-                            Vaata projekti GitHubis
-                        </a>
-                    </section>
-
-                    <AppLogs />
-                </main>
+                        <input
+                            autoFocus
+                            type="password"
+                            inputMode="numeric"
+                            maxLength={4}
+                            value={pinValue}
+                            onChange={(event) => setPinValue(event.target.value.replace(/\D/g, "").slice(0, 4))}
+                            className="mt-[16px] h-[44px] w-full rounded-[8px] border border-[#d9dee8] px-[12px] text-center text-[20px] tracking-[0.3em] outline-none"
+                        />
+                        {pinError && <p className="mt-[8px] text-[12px] text-[#b42318]">{pinError}</p>}
+                        <div className="mt-[18px] flex justify-end gap-[8px]">
+                            <button type="button" onClick={() => setPinPrompt(null)} className="rounded-[8px] border border-[#d9dee8] px-[14px] py-[9px] text-[13px] text-[#647085]">TГјhista</button>
+                            <button type="submit" className="rounded-[8px] bg-[#5798f5] px-[14px] py-[9px] text-[13px] font-medium text-white">Ava</button>
+                        </div>
+                    </form>
+                </div>
             )}
         </div>
     );

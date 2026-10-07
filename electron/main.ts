@@ -10,6 +10,7 @@ import {
 
 import path from "path";
 import fs from "fs";
+import os from "os";
 import dgram from "dgram";
 import { spawn } from "child_process";
 
@@ -20,6 +21,25 @@ let isQuitting = false;
 
 let serverProcess:
     ReturnType<typeof spawn> | null = null;
+const FRONTEND_PORT = 5173;
+
+function writeMainLog(level: "info" | "warn" | "error", message: string, details?: unknown) {
+    try {
+        const logPath = path.join(app.getPath("userData"), "koolikell.log");
+        const detail = details === undefined ? "" : ` ${JSON.stringify(details)}`;
+        fs.appendFileSync(
+            logPath,
+            `${new Date().toISOString()} [${level.toUpperCase()}] ${message}${detail}${os.EOL}`,
+            "utf8"
+        );
+    } catch (error) {
+        console.error("Failed to write main log:", error);
+    }
+}
+
+process.on("uncaughtException", (error) => writeMainLog("error", "Uncaught main process exception", error));
+process.on("unhandledRejection", (reason) => writeMainLog("error", "Unhandled main process rejection", reason));
+process.on("warning", (warning) => writeMainLog("warn", "Node.js warning", warning));
 
 interface WindowsSettings {
     openAtLogin: boolean;
@@ -30,6 +50,59 @@ interface NtpResult {
     server: string;
     offsetMs: number;
     checkedAt: string;
+}
+
+interface ConnectionInfo {
+    address: string | null;
+    port: number;
+    interfaceName: string | null;
+    connectionType: "ethernet" | "wifi" | "other" | "none";
+}
+
+function getConnectionInfo(): ConnectionInfo {
+    const interfaces = os.networkInterfaces();
+    const candidates: Array<{
+        address: string;
+        name: string;
+        priority: number;
+    }> = [];
+
+    for (const [name, entries] of Object.entries(interfaces)) {
+        for (const entry of entries ?? []) {
+            if (entry.family !== "IPv4" || entry.internal) {
+                continue;
+            }
+
+            const normalizedName = name.toLowerCase();
+            const isEthernet =
+                /ethernet|lan|以太网|локальн/.test(normalizedName);
+            const isWifi =
+                /wi-?fi|wireless|wlan|беспровод/.test(normalizedName);
+
+            candidates.push({
+                address: entry.address,
+                name,
+                priority: isEthernet ? 0 : isWifi ? 1 : 2,
+            });
+        }
+    }
+
+    const selected = candidates.sort((a, b) => a.priority - b.priority)[0];
+    const connectionType =
+        selected === undefined
+            ? "none"
+            : selected.priority === 0
+                ? "ethernet"
+                : selected.priority === 1
+                    ? "wifi"
+                    : "other";
+
+    return {
+        address: selected?.address ?? null,
+        port: FRONTEND_PORT,
+        interfaceName: selected?.name ?? null,
+        connectionType,
+    };
 }
 
 function queryNtpServer(
@@ -260,7 +333,9 @@ function startServer(): Promise<void> {
                         ELECTRON_RUN_AS_NODE: "1",
                         DATABASE_URL: "file:./schoolbell.db",
                         HOST: "127.0.0.1",
-                        FRONTEND_HOST: "0.0.0.0",
+                        FRONTEND_HOST: app.isPackaged
+                            ? "0.0.0.0"
+                            : undefined,
                         CLIENT_DIST_PATH: clientDistPath,
                     },
 
@@ -350,13 +425,11 @@ function startServer(): Promise<void> {
 
 
             setTimeout(() => {
-                waitForServer(
-                    "http://localhost:3000/"
-                )
+                waitForServer("http://localhost:3000/")
                 .then(() =>
-                    waitForServer(
-                        "http://127.0.0.1:5173/"
-                    )
+                    app.isPackaged
+                        ? waitForServer("http://127.0.0.1:5173/")
+                        : undefined
                 )
                 .then(() => {
                     serverReady = true;
@@ -433,6 +506,31 @@ ipcMain.handle(
             );
 
         return settings;
+    }
+);
+
+ipcMain.handle(
+    "connection-info:get",
+    (): ConnectionInfo => getConnectionInfo()
+);
+
+ipcMain.handle(
+    "logs:write",
+    (
+        _event,
+        entry: {
+            timestamp: string;
+            level: "info" | "warn" | "error";
+            message: string;
+            details?: string;
+        }
+    ) => {
+        const logPath = path.join(app.getPath("userData"), "koolikell.log");
+        fs.appendFileSync(
+            logPath,
+            `${JSON.stringify(entry)}${os.EOL}`,
+            "utf8"
+        );
     }
 );
 

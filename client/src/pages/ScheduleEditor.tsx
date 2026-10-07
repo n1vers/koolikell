@@ -1,35 +1,39 @@
 import { useState } from "react";
 
-import type {
-    Schedule,
-    Sound,
-} from "../types";
+import type { Schedule, Sound } from "../types";
 
 interface ScheduleEditorProps {
     profileName: string;
-
     schedules: Schedule[];
-
     sounds: Sound[];
-
     onBack: () => void;
-
     onSave: () => Promise<void>;
-
     onAddSchedule: (
         time: string,
         preBellEnabled: boolean,
         soundId: number | null,
         preBellSoundId: number | null
     ) => Promise<void>;
+    onUpdateSchedule: (schedule: Schedule) => Promise<void>;
+    onDeleteSchedule: (schedule: Schedule) => Promise<void>;
+}
 
-    onUpdateSchedule: (
-        schedule: Schedule
-    ) => Promise<void>;
+// Единая сетка для заголовка и строк, чтобы колонки всегда совпадали
+const ROW_GRID =
+    "grid grid-cols-[36px_96px_minmax(240px,1.2fr)_96px_minmax(160px,1fr)_36px] gap-[16px] items-center";
 
-    onDeleteSchedule: (
-        schedule: Schedule
-    ) => Promise<void>;
+const SELECT_BASE =
+    "h-[36px] min-w-0 w-full rounded-[8px] border border-[#e2e7ef] bg-white px-[10px] text-[13px] text-[#303846] outline-none transition focus:border-[#5798f5] focus:ring-2 focus:ring-[#5798f5]/20 disabled:cursor-not-allowed disabled:bg-[#f5f7fb] disabled:text-[#a3adbd]";
+
+const INPUT_BASE =
+    "h-[40px] w-full rounded-[8px] border border-[#e2e7ef] bg-white px-[12px] text-[13px] text-[#303846] outline-none transition focus:border-[#5798f5] focus:ring-2 focus:ring-[#5798f5]/20";
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+    return (
+        <div className="mb-[6px] text-[11px] font-medium uppercase tracking-wide text-[#8490a3]">
+            {children}
+        </div>
+    );
 }
 
 export default function ScheduleEditor({
@@ -42,33 +46,27 @@ export default function ScheduleEditor({
     onUpdateSchedule,
     onDeleteSchedule,
 }: ScheduleEditorProps) {
+    const [saving, setSaving] = useState(false);
 
-    const [saving, setSaving] =
-        useState(false);
+    const [newTime, setNewTime] = useState("08:00");
 
-    const [newTime, setNewTime] =
-        useState("08:00");
+    const [newPreBellEnabled, setNewPreBellEnabled] = useState(true);
 
-    const [newPreBellEnabled, setNewPreBellEnabled] =
-        useState(true);
+    const [newSoundId, setNewSoundId] = useState<number | null>(() => {
+        const value = localStorage.getItem("schoolbell-default-sound-id");
+        return value === null ? null : Number(value);
+    });
 
-    const [newSoundId, setNewSoundId] =
-        useState<number | null>(() => {
-            const value = localStorage.getItem(
-                "schoolbell-default-sound-id"
-            );
-
-            return value === null ? null : Number(value);
-        });
-
-    const [newPreBellSoundId, setNewPreBellSoundId] =
-        useState<number | null>(() => {
+    const [newPreBellSoundId, setNewPreBellSoundId] = useState<number | null>(
+        () => {
             const value = localStorage.getItem(
                 "schoolbell-default-pre-bell-sound-id"
             );
-
             return value === null ? null : Number(value);
-        });
+        }
+    );
+
+    const [timeDrafts, setTimeDrafts] = useState<Record<number, string>>({});
 
     function rememberSound(
         key: string,
@@ -84,15 +82,10 @@ export default function ScheduleEditor({
         }
     }
 
-
-    // =========================================
     // ADD
-    // =========================================
 
     async function handleAdd() {
-
         try {
-
             await onAddSchedule(
                 newTime,
                 newPreBellEnabled,
@@ -102,754 +95,309 @@ export default function ScheduleEditor({
 
             setNewTime("08:00");
             setNewPreBellEnabled(true);
-
         } catch (error) {
-
-            console.error(
-                "Failed to add schedule:",
-                error
-            );
-
+            console.error("Failed to add schedule:", error);
         }
-
     }
 
-
-    // =========================================
     // SAVE
-    // =========================================
 
     async function handleSave() {
-
         try {
-
             setSaving(true);
-
             await onSave();
-
         } catch (error) {
-
-            console.error(
-                "Failed to save:",
-                error
-            );
-
+            console.error("Failed to save:", error);
         } finally {
-
             setSaving(false);
-
         }
-
     }
 
-
-    // =========================================
     // UPDATE
-    // =========================================
 
     async function updateSchedule(
         schedule: Schedule,
         changes: Partial<Schedule>
     ) {
-
-        const updatedSchedule: Schedule = {
-            ...schedule,
-            ...changes,
-        };
-
-        await onUpdateSchedule(
-            updatedSchedule
-        );
-
+        await onUpdateSchedule({ ...schedule, ...changes });
     }
 
-
-    // =========================================
-    // TIME
-    // =========================================
-
-    async function handleTimeChange(
-        schedule: Schedule,
-        time: string
-    ) {
-
-        await updateSchedule(
-            schedule,
-            { time }
-        );
-
+    function handleTimeDraftChange(scheduleId: number, time: string) {
+        setTimeDrafts((current) => ({
+            ...current,
+            [scheduleId]: time,
+        }));
     }
 
+    async function commitTimeDraft(schedule: Schedule) {
+        const time = timeDrafts[schedule.id];
 
-    // =========================================
-    // PRE BELL
-    // =========================================
+        if (time === undefined || time === schedule.time) {
+            return;
+        }
 
-    async function handlePreBellChange(
-        schedule: Schedule,
-        enabled: boolean
-    ) {
+        await updateSchedule(schedule, { time });
 
-        await updateSchedule(
-            schedule,
-            {
-                preBellEnabled:
-                    enabled,
-            }
-        );
-
+        setTimeDrafts((current) => {
+            const next = { ...current };
+            delete next[schedule.id];
+            return next;
+        });
     }
 
+    const toId = (value: string) => (value === "" ? null : Number(value));
 
-    // =========================================
-    // ENABLED
-    // =========================================
-
-    async function handleEnabledChange(
-        schedule: Schedule,
-        enabled: boolean
-    ) {
-
-        await updateSchedule(
-            schedule,
-            {
-                enabled,
-            }
-        );
-
-    }
-
-
-    // =========================================
-    // SOUND
-    // =========================================
-
-    async function handleSoundChange(
-        schedule: Schedule,
-        value: string
-    ) {
-
-        const soundId =
-            value === ""
-                ? null
-                : Number(value);
-
-        await updateSchedule(
-            schedule,
-            {
-                soundId,
-            }
-        );
-
-    }
-
-    async function handlePreBellSoundChange(
-        schedule: Schedule,
-        value: string
-    ) {
-        await updateSchedule(
-            schedule,
-            {
-                preBellSoundId:
-                    value === ""
-                        ? null
-                        : Number(value),
-            }
-        );
-    }
-
-
-    // =========================================
     // PAGE
-    // =========================================
 
     return (
-        <main
-            className="
-                ml-[240px]
-                w-[calc(100%_-_240px)]
-                overflow-x-hidden
-                min-h-screen
-                bg-[#f5f7fb]
-                px-[40px]
-                py-[32px]
-                font-['Inter']
-            "
-        >
-
+        <main className="ml-[240px] min-h-screen w-[calc(100%_-_240px)] overflow-x-hidden bg-[#f5f7fb] px-[40px] py-[32px] font-['Inter']">
             {/* HEADER */}
 
-            <div
-                className="
-                    mb-[32px]
-                    flex
-                    items-start
-                    justify-between
-                "
-            >
-
+            <div className="mb-[28px] flex items-start justify-between gap-[24px]">
                 <div>
-
                     <button
                         type="button"
                         onClick={onBack}
-                        className="
-                            mb-[12px]
-                            text-[12px]
-                            font-medium
-                            uppercase
-                            tracking-wide
-                            text-[#5798f5]
-                            hover:text-[#3f82df]
-                        "
+                        className="mb-[12px] text-[12px] font-medium uppercase tracking-wide text-[#5798f5] transition hover:text-[#3f82df]"
                     >
-                        ← PROFIL
+                        ← Profil
                     </button>
 
-
-                    <h1
-                        className="
-                            text-[28px]
-                            font-semibold
-                            text-[#202633]
-                        "
-                    >
+                    <h1 className="text-[28px] font-semibold leading-tight text-[#202633]">
                         {profileName}
                     </h1>
 
-
-                    <p
-                        className="
-                            mt-[6px]
-                            text-[14px]
-                            text-[#7d899d]
-                        "
-                    >
-                        Muutke kellade aega,
-                        tüüpi ja helisid
+                    <p className="mt-[6px] text-[14px] text-[#7d899d]">
+                        Muutke kellade aega, tüüpi ja helisid
                     </p>
-
                 </div>
-
 
                 <button
                     type="button"
                     onClick={handleSave}
                     disabled={saving}
-                    className="
-                        mt-[22px]
-                        h-[48px]
-                        w-[138px]
-                        rounded-[8px]
-                        bg-[#5798f5]
-                        text-[13px]
-                        font-medium
-                        text-white
-                        transition
-                        hover:bg-[#4688e7]
-                        disabled:cursor-not-allowed
-                        disabled:opacity-60
-                    "
+                    className="mt-[22px] h-[44px] min-w-[138px] rounded-[8px] bg-[#5798f5] px-[20px] text-[13px] font-medium text-white shadow-[0_1px_3px_rgba(87,152,245,0.35)] transition hover:bg-[#4688e7] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                    {saving
-                        ? "Salvestamine..."
-                        : "Salvesta"}
+                    {saving ? "Salvestamine..." : "Salvesta"}
                 </button>
-
             </div>
-
 
             {/* TABLE HEADER */}
 
             <div
-                className="
-                    grid
-                    grid-cols-[40px_82px_minmax(170px,0.8fr)_minmax(150px,1fr)_58px_32px]
-                    gap-[12px]
-                    items-center
-                    px-[18px]
-                    text-[10px]
-                    font-medium
-                    uppercase
-                    tracking-wide
-                    text-[#8490a3]
-                "
+                className={`${ROW_GRID} px-[20px] text-[10px] font-medium uppercase tracking-wide text-[#8490a3]`}
             >
-
                 <span>№</span>
-
                 <span>Aeg</span>
-
                 <span>Predzvon</span>
-
                 <span>Seisund</span>
-
                 <span>Heli</span>
-
                 <span />
-
             </div>
-
 
             {/* SCHEDULE LIST */}
 
-            <div
-                className="
-                    mt-[10px]
-                    space-y-[9px]
-                "
-            >
+            <div className="mt-[10px] space-y-[8px]">
+                {schedules.map((schedule, index) => (
+                    <div
+                        key={schedule.id}
+                        className={`${ROW_GRID} min-h-[60px] min-w-0 rounded-[10px] bg-white px-[20px] py-[10px] shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)] ${
+                            schedule.enabled ? "" : "opacity-70"
+                        }`}
+                    >
+                        {/* NUMBER */}
 
-                {schedules.map(
-                    (
-                        schedule,
-                        index
-                    ) => (
+                        <span className="text-[12px] text-[#6d788b]">
+                            {String(index + 1).padStart(2, "0")}
+                        </span>
 
-                        <div
-                            key={
-                                schedule.id
+                        {/* TIME */}
+
+                        <input
+                            type="time"
+                            value={timeDrafts[schedule.id] ?? schedule.time}
+                            onChange={(event) =>
+                                handleTimeDraftChange(
+                                    schedule.id,
+                                    event.target.value
+                                )
                             }
-                            className="
-                                grid
-                                grid-cols-[40px_82px_minmax(170px,0.8fr)_minmax(150px,1fr)_58px_32px]
-                                gap-[12px]
-                                min-w-0
-                                min-h-[60px]
-                                items-center
-                                rounded-[10px]
-                                bg-white
-                                px-[18px]
-                                shadow-[0_1px_2px_rgba(0,0,0,0.02)]
-                            "
-                        >
+                            onBlur={() => void commitTimeDraft(schedule)}
+                            className="h-[32px] w-[88px] rounded-[6px] border border-transparent bg-transparent px-[4px] text-[14px] font-medium text-[#28303d] outline-none transition hover:border-[#e2e7ef] focus:border-[#5798f5]"
+                        />
 
-                            {/* NUMBER */}
+                        {/* PRE BELL */}
 
-                            <span
-                                className="
-                                    text-[12px]
-                                    text-[#6d788b]
-                                "
-                            >
-                                {String(
-                                    index + 1
-                                ).padStart(
-                                    2,
-                                    "0"
-                                )}
-                            </span>
-
-
-                            {/* TIME */}
-
+                        <div className="flex min-w-0 items-center gap-[10px]">
                             <input
-                                type="time"
-                                value={
-                                    schedule.time
+                                type="checkbox"
+                                checked={schedule.preBellEnabled}
+                                onChange={(event) =>
+                                    void updateSchedule(schedule, {
+                                        preBellEnabled: event.target.checked,
+                                    })
                                 }
-                                onChange={(
-                                    event
-                                ) =>
-                                    handleTimeChange(
-                                        schedule,
-                                        event
-                                            .target
-                                            .value
-                                    )
-                                }
-                                className="
-                                    w-[80px]
-                                    border-none
-                                    bg-transparent
-                                    p-0
-                                    text-[13px]
-                                    font-medium
-                                    text-[#28303d]
-                                    outline-none
-                                "
+                                aria-label="Predzvon sisse"
+                                className="h-[16px] w-[16px] shrink-0 cursor-pointer accent-[#5798f5]"
                             />
 
-
-                            {/* PRE BELL */}
-
-                            <div className="flex min-w-0 items-center gap-[6px]">
-
-                                <>
-                                        <label
-                                            className="
-                                                flex
-                                                cursor-pointer
-                                                items-center
-                                                gap-[5px]
-                                            "
-                                        >
-
-                                        <input
-                                            type="checkbox"
-                                            checked={
-                                                schedule.preBellEnabled
-                                            }
-                                            onChange={(
-                                                event
-                                            ) =>
-                                                handlePreBellChange(
-                                                    schedule,
-                                                    event
-                                                        .target
-                                                        .checked
-                                                )
-                                            }
-                                            className="
-                                                h-[16px]
-                                                w-[16px]
-                                            "
-                                        />
-
-                                        <span
-                                            className="
-                                                text-[11px]
-                                                text-[#697589]
-                                            "
-                                        >
-                                            Predzvon
-                                        </span>
-
-                                        </label>
-
-                                        <select
-                                            value={schedule.preBellSoundId ?? ""}
-                                            onChange={(event) =>
-                                                void handlePreBellSoundChange(
-                                                    schedule,
-                                                    event.target.value
-                                                )
-                                            }
-                                            className="mt-0 min-w-0 max-w-[112px] rounded-[6px] border border-[#e2e7ef] bg-white text-[10px] text-[#697589]"
-                                        >
-                                            <option value="">Predzvoni heli</option>
-                                            {sounds.map((sound) => (
-                                                <option key={sound.id} value={sound.id}>
-                                                    {sound.name}
-                                                </option>
-                                            ))}
-                                        </select>
-                                </>
-
-                            </div>
-
-
-                            {/* ENABLED */}
-
-                            <label
-                                className="
-                                    flex
-                                    cursor-pointer
-                                    items-center
-                                "
-                            >
-
-                                <input
-                                    type="checkbox"
-                                    checked={
-                                        schedule.enabled
-                                    }
-                                    onChange={(
-                                        event
-                                    ) =>
-                                        handleEnabledChange(
-                                            schedule,
-                                            event
-                                                .target
-                                                .checked
-                                        )
-                                    }
-                                    className="
-                                        h-[16px]
-                                        w-[16px]
-                                    "
-                                />
-
-                                <span
-                                    className="
-                                        ml-[7px]
-                                        text-[11px]
-                                        text-[#697589]
-                                    "
-                                >
-                                    {schedule.enabled
-                                        ? "Sees"
-                                        : "Väljas"}
-                                </span>
-
-                            </label>
-
-
-                            {/* SOUND */}
-
                             <select
-                                value={
-                                    schedule.soundId ??
-                                    ""
+                                value={schedule.preBellSoundId ?? ""}
+                                disabled={!schedule.preBellEnabled}
+                                onChange={(event) =>
+                                    void updateSchedule(schedule, {
+                                        preBellSoundId: toId(
+                                            event.target.value
+                                        ),
+                                    })
                                 }
-                                onChange={(
-                                    event
-                                ) =>
-                                    handleSoundChange(
-                                        schedule,
-                                        event
-                                            .target
-                                            .value
-                                    )
-                                }
-                                className="
-                                    min-w-0
-                                    w-full
-                                    min-w-0
-                                    max-w-full
-                                    border-none
-                                    bg-transparent
-                                    text-[12px]
-                                    text-[#718096]
-                                    outline-none
-                                "
+                                className={SELECT_BASE}
                             >
-
-                                <option value="">
-                                    Heli pole määratud
-                                </option>
-
-
-                                {sounds.map(
-                                    (sound) => (
-
-                                        <option
-                                            key={
-                                                sound.id
-                                            }
-                                            value={
-                                                sound.id
-                                            }
-                                        >
-                                            {sound.name}
-                                        </option>
-
-                                    )
-                                )}
-
+                                <option value="">Predzvoni heli</option>
+                                {sounds.map((sound) => (
+                                    <option key={sound.id} value={sound.id}>
+                                        {sound.name}
+                                    </option>
+                                ))}
                             </select>
-
-
-                            {/* DELETE */}
-
-                            <button
-                                type="button"
-                                onClick={() =>
-                                    onDeleteSchedule(
-                                        schedule
-                                    )
-                                }
-                                className="
-                                    flex
-                                    h-[30px]
-                                    w-[30px]
-                                    items-center
-                                    justify-center
-                                    rounded-[6px]
-                                    text-[18px]
-                                    text-[#8994a6]
-                                    hover:bg-[#f1f4f8]
-                                    hover:text-[#4e596b]
-                                "
-                                title="Kustuta"
-                            >
-                                ×
-                            </button>
-
                         </div>
 
-                    )
-                )}
+                        {/* ENABLED */}
 
+                        <label className="flex cursor-pointer items-center gap-[8px]">
+                            <input
+                                type="checkbox"
+                                checked={schedule.enabled}
+                                onChange={(event) =>
+                                    void updateSchedule(schedule, {
+                                        enabled: event.target.checked,
+                                    })
+                                }
+                                className="h-[16px] w-[16px] cursor-pointer accent-[#5798f5]"
+                            />
+
+                            <span className="text-[12px] text-[#697589]">
+                                {schedule.enabled ? "Sees" : "Väljas"}
+                            </span>
+                        </label>
+
+                        {/* SOUND */}
+
+                        <select
+                            value={schedule.soundId ?? ""}
+                            onChange={(event) =>
+                                void updateSchedule(schedule, {
+                                    soundId: toId(event.target.value),
+                                })
+                            }
+                            className={SELECT_BASE}
+                        >
+                            <option value="">Heli pole määratud</option>
+                            {sounds.map((sound) => (
+                                <option key={sound.id} value={sound.id}>
+                                    {sound.name}
+                                </option>
+                            ))}
+                        </select>
+
+                        {/* DELETE */}
+
+                        <button
+                            type="button"
+                            onClick={() => void onDeleteSchedule(schedule)}
+                            className="flex h-[32px] w-[32px] items-center justify-center rounded-[6px] text-[18px] text-[#8994a6] transition hover:bg-[#fdecec] hover:text-[#d64545]"
+                            title="Kustuta"
+                            aria-label="Kustuta"
+                        >
+                            ×
+                        </button>
+                    </div>
+                ))}
             </div>
-
 
             {/* ADD */}
 
-            <div
-                className="
-                    mt-[24px]
-                    rounded-[12px]
-                    bg-white
-                    p-[18px]
-                    shadow-[0_1px_3px_rgba(0,0,0,0.04)]
-                "
-            >
-
-                <div
-                    className="
-                        mb-[14px]
-                        text-[13px]
-                        font-medium
-                        text-[#303846]
-                    "
-                >
+            <div className="mt-[28px] rounded-[12px] bg-white p-[20px] shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+                <div className="mb-[16px] text-[14px] font-semibold text-[#303846]">
                     Lisa kell
                 </div>
 
-
-                <div
-                    className="
-                        flex
-                        items-center
-                        gap-[10px]
-                    "
-                >
-
+                <div className="grid grid-cols-[120px_150px_minmax(180px,1fr)_minmax(180px,1fr)_auto] items-end gap-[16px]">
                     {/* TIME */}
 
-                    <input
-                        type="time"
-                        value={
-                            newTime
-                        }
-                        onChange={(event) =>
-                            setNewTime(
-                                event.target.value
-                            )
-                        }
-                        className="
-                            h-[40px]
-                            rounded-[8px]
-                            border
-                            border-[#e2e7ef]
-                            bg-white
-                            px-[12px]
-                            text-[13px]
-                            text-[#303846]
-                            outline-none
-                            focus:border-[#5798f5]
-                        "
-                    />
+                    <div>
+                        <FieldLabel>Kellaaeg</FieldLabel>
 
+                        <input
+                            type="time"
+                            value={newTime}
+                            onChange={(event) => setNewTime(event.target.value)}
+                            className={INPUT_BASE}
+                        />
+                    </div>
 
                     {/* PRE BELL */}
 
-                    <label
-                            className="
-                                flex
-                                h-[40px]
-                                items-center
-                                gap-[7px]
-                                rounded-[8px]
-                                border
-                                border-[#e2e7ef]
-                                px-[12px]
-                            "
-                        >
+                    <div>
+                        <FieldLabel>Predzvon</FieldLabel>
 
+                        <label className="flex h-[40px] cursor-pointer items-center gap-[8px] rounded-[8px] border border-[#e2e7ef] bg-white px-[12px]">
                             <input
                                 type="checkbox"
-                                checked={
-                                    newPreBellEnabled
-                                }
+                                checked={newPreBellEnabled}
                                 onChange={(event) =>
-                                    setNewPreBellEnabled(
-                                        event
-                                            .target
-                                            .checked
-                                    )
+                                    setNewPreBellEnabled(event.target.checked)
                                 }
-                                className="
-                                    h-[16px]
-                                    w-[16px]
-                                "
+                                className="h-[16px] w-[16px] cursor-pointer accent-[#5798f5]"
                             />
 
-                            <span
-                                className="
-                                    text-[12px]
-                                    text-[#596577]
-                                "
-                            >
-                                Predzvon
+                            <span className="text-[13px] text-[#596577]">
+                                Kasuta
                             </span>
-
-                    </label>
-
+                        </label>
+                    </div>
 
                     {/* SOUND */}
 
-                    <select
-                        value={
-                            newSoundId ??
-                            ""
-                        }
-                        onChange={(event) =>
-                            rememberSound(
-                                "schoolbell-default-sound-id",
-                                event.target.value ===
-                                    ""
-                                    ? null
-                                    : Number(
-                                        event
-                                            .target
-                                            .value
-                                    ),
-                                setNewSoundId
-                            )
-                        }
-                        className="
-                            h-[40px]
-                            min-w-[200px]
-                            rounded-[8px]
-                            border
-                            border-[#e2e7ef]
-                            bg-white
-                            px-[12px]
-                            text-[13px]
-                            text-[#303846]
-                            outline-none
-                            focus:border-[#5798f5]
-                        "
-                    >
+                    <div className="min-w-0">
+                        <FieldLabel>Põhikella heli</FieldLabel>
 
-                        <option value="">
-                            Heli pole määratud
-                        </option>
-
-
-                        {sounds.map(
-                            (sound) => (
-
-                                <option
-                                    key={
-                                        sound.id
-                                    }
-                                    value={
-                                        sound.id
-                                    }
-                                >
+                        <select
+                            value={newSoundId ?? ""}
+                            onChange={(event) =>
+                                rememberSound(
+                                    "schoolbell-default-sound-id",
+                                    toId(event.target.value),
+                                    setNewSoundId
+                                )
+                            }
+                            className={INPUT_BASE}
+                        >
+                            <option value="">Heli pole määratud</option>
+                            {sounds.map((sound) => (
+                                <option key={sound.id} value={sound.id}>
                                     {sound.name}
                                 </option>
+                            ))}
+                        </select>
+                    </div>
 
-                            )
-                        )}
+                    {/* PRE BELL SOUND */}
 
-                    </select>
+                    <div className="min-w-0">
+                        <FieldLabel>Predzvoni heli</FieldLabel>
 
-                    <select
+                        <select
                             value={newPreBellSoundId ?? ""}
+                            disabled={!newPreBellEnabled}
                             onChange={(event) =>
                                 rememberSound(
                                     "schoolbell-default-pre-bell-sound-id",
-                                    event.target.value === ""
-                                        ? null
-                                        : Number(event.target.value),
+                                    toId(event.target.value),
                                     setNewPreBellSoundId
                                 )
                             }
-                            className="h-[40px] min-w-[200px] rounded-[8px] border border-[#e2e7ef] bg-white px-[12px] text-[13px] text-[#303846] outline-none focus:border-[#5798f5]"
+                            className={`${INPUT_BASE} disabled:cursor-not-allowed disabled:bg-[#f5f7fb] disabled:text-[#a3adbd]`}
                         >
                             <option value="">Predzvoni heli</option>
                             {sounds.map((sound) => (
@@ -857,48 +405,21 @@ export default function ScheduleEditor({
                                     {sound.name}
                                 </option>
                             ))}
-                    </select>
-
+                        </select>
+                    </div>
 
                     {/* ADD BUTTON */}
 
                     <button
                         type="button"
-                        onClick={
-                            handleAdd
-                        }
-                        className="
-                            flex
-                            h-[40px]
-                            items-center
-                            gap-[6px]
-                            rounded-[8px]
-                            bg-[#5798f5]
-                            px-[16px]
-                            text-[12px]
-                            font-medium
-                            text-white
-                            shadow-[0_1px_3px_rgba(0,0,0,0.05)]
-                            hover:bg-[#4688e7]
-                        "
+                        onClick={handleAdd}
+                        className="flex h-[40px] items-center gap-[6px] whitespace-nowrap rounded-[8px] bg-[#5798f5] px-[18px] text-[13px] font-medium text-white shadow-[0_1px_3px_rgba(87,152,245,0.35)] transition hover:bg-[#4688e7]"
                     >
-
-                        <span
-                            className="
-                                text-[17px]
-                            "
-                        >
-                            +
-                        </span>
-
+                        <span className="text-[17px] leading-none">+</span>
                         Lisa kell
-
                     </button>
-
                 </div>
-
             </div>
-
         </main>
     );
 }

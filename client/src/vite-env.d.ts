@@ -10,6 +10,13 @@ interface Window {
             checkedAt: string;
         }>;
 
+        getConnectionInfo: () => Promise<{
+            address: string | null;
+            port: number;
+            interfaceName: string | null;
+            connectionType: "ethernet" | "wifi" | "other" | "none";
+        }>;
+
         openSoundsFolder: () => Promise<string>;
 
         getWindowsSettings: () => Promise<{
@@ -24,6 +31,12 @@ interface Window {
             openAtLogin: boolean;
             openAsHidden: boolean;
         }>;
+        writeLogFile: (entry: {
+            timestamp: string;
+            level: "info" | "warn" | "error";
+            message: string;
+            details?: string;
+        }) => Promise<void>;
 
         onBell: (
             callback: (event: {

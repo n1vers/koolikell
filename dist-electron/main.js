@@ -6,12 +6,60 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
+const os_1 = __importDefault(require("os"));
 const dgram_1 = __importDefault(require("dgram"));
 const child_process_1 = require("child_process");
 let mainWindow = null;
 let tray = null;
 let isQuitting = false;
 let serverProcess = null;
+const FRONTEND_PORT = 5173;
+function writeMainLog(level, message, details) {
+    try {
+        const logPath = path_1.default.join(electron_1.app.getPath("userData"), "koolikell.log");
+        const detail = details === undefined ? "" : ` ${JSON.stringify(details)}`;
+        fs_1.default.appendFileSync(logPath, `${new Date().toISOString()} [${level.toUpperCase()}] ${message}${detail}${os_1.default.EOL}`, "utf8");
+    }
+    catch (error) {
+        console.error("Failed to write main log:", error);
+    }
+}
+process.on("uncaughtException", (error) => writeMainLog("error", "Uncaught main process exception", error));
+process.on("unhandledRejection", (reason) => writeMainLog("error", "Unhandled main process rejection", reason));
+process.on("warning", (warning) => writeMainLog("warn", "Node.js warning", warning));
+function getConnectionInfo() {
+    const interfaces = os_1.default.networkInterfaces();
+    const candidates = [];
+    for (const [name, entries] of Object.entries(interfaces)) {
+        for (const entry of entries ?? []) {
+            if (entry.family !== "IPv4" || entry.internal) {
+                continue;
+            }
+            const normalizedName = name.toLowerCase();
+            const isEthernet = /ethernet|lan|以太网|локальн/.test(normalizedName);
+            const isWifi = /wi-?fi|wireless|wlan|беспровод/.test(normalizedName);
+            candidates.push({
+                address: entry.address,
+                name,
+                priority: isEthernet ? 0 : isWifi ? 1 : 2,
+            });
+        }
+    }
+    const selected = candidates.sort((a, b) => a.priority - b.priority)[0];
+    const connectionType = selected === undefined
+        ? "none"
+        : selected.priority === 0
+            ? "ethernet"
+            : selected.priority === 1
+                ? "wifi"
+                : "other";
+    return {
+        address: selected?.address ?? null,
+        port: FRONTEND_PORT,
+        interfaceName: selected?.name ?? null,
+        connectionType,
+    };
+}
 function queryNtpServer(server) {
     return new Promise((resolve, reject) => {
         const socket = dgram_1.default.createSocket("udp4");
@@ -137,7 +185,9 @@ function startServer() {
                 ELECTRON_RUN_AS_NODE: "1",
                 DATABASE_URL: "file:./schoolbell.db",
                 HOST: "127.0.0.1",
-                FRONTEND_HOST: "0.0.0.0",
+                FRONTEND_HOST: electron_1.app.isPackaged
+                    ? "0.0.0.0"
+                    : undefined,
                 CLIENT_DIST_PATH: clientDistPath,
             },
             stdio: [
@@ -168,7 +218,9 @@ function startServer() {
         });
         setTimeout(() => {
             waitForServer("http://localhost:3000/")
-                .then(() => waitForServer("http://127.0.0.1:5173/"))
+                .then(() => electron_1.app.isPackaged
+                ? waitForServer("http://127.0.0.1:5173/")
+                : undefined)
                 .then(() => {
                 serverReady = true;
                 resolve();
@@ -207,6 +259,11 @@ electron_1.ipcMain.handle("windows-settings:set", (_event, settings) => {
     });
     fs_1.default.writeFileSync(getWindowsSettingsPath(), JSON.stringify(settings), "utf8");
     return settings;
+});
+electron_1.ipcMain.handle("connection-info:get", () => getConnectionInfo());
+electron_1.ipcMain.handle("logs:write", (_event, entry) => {
+    const logPath = path_1.default.join(electron_1.app.getPath("userData"), "koolikell.log");
+    fs_1.default.appendFileSync(logPath, `${JSON.stringify(entry)}${os_1.default.EOL}`, "utf8");
 });
 // ========================================
 // CREATE WINDOW
