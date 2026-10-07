@@ -10,6 +10,7 @@ import {
 export default function PlayNowPage() {
     const [tracks, setTracks] = useState<PlayNowTrack[]>([]);
     const [selectedFile, setSelectedFile] = useState<string | null>(null);
+    const [playingFile, setPlayingFile] = useState<string | null>(null);
     const [playing, setPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
@@ -64,6 +65,7 @@ export default function PlayNowPage() {
         if (audioRef.current) {
             audioRef.current.currentTime = 0;
         }
+        setPlayingFile(null);
         setPlaying(false);
         setCurrentTime(0);
     }
@@ -91,15 +93,18 @@ export default function PlayNowPage() {
             if (nextTrack) {
                 play(nextTrack.fileName);
             } else {
+                setPlayingFile(null);
                 setPlaying(false);
             }
         };
         audio.onerror = () => {
             setError("PlayNow loo esitamine ebaõnnestus");
+            setPlayingFile(null);
             setPlaying(false);
         };
         audioRef.current = audio;
         setSelectedFile(fileName);
+        setPlayingFile(fileName);
         setPlaying(true);
         setCurrentTime(0);
         void audio.play();
@@ -236,10 +241,6 @@ export default function PlayNowPage() {
             audioRef.current.loop = mode === "track";
         }
     }
-
-    const selectedTrack = tracks.find(
-        (track) => track.fileName === selectedFile
-    );
 
     return (
         <main className="ml-[240px] min-h-screen bg-[#f5f7fb] px-[clamp(24px,4vw,64px)] py-[56px] font-['Inter']">
@@ -430,7 +431,7 @@ export default function PlayNowPage() {
                                 >
                                     {track.name}
                                 </button>
-                                {selectedTrack?.fileName === track.fileName && playing && (
+                                {playingFile === track.fileName && playing && (
                                     <span className="text-[11px] text-[#438fea]">Esitab</span>
                                 )}
                                 <button
