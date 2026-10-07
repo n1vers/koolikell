@@ -3,7 +3,7 @@ import { API_URL } from "../api/apiBase";
 export type PlayNowLoopMode = "off" | "track" | "playlist";
 export interface PlayNowState {
     revision: number;
-    action: "play" | "stop" | "loop" | "volume" | "select" | "position";
+    action: "play" | "pause" | "stop" | "loop" | "volume" | "select" | "position";
     selectedFile: string | null;
     playing: boolean;
     loopMode: PlayNowLoopMode;

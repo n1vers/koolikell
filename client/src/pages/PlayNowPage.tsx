@@ -102,6 +102,8 @@ export default function PlayNowPage() {
     const playbackGeneration = useRef(0);
     const commandQueue = useRef(Promise.resolve());
     const positionUpdateInFlight = useRef(false);
+    const controlCommandCount = useRef(0);
+    const positionCommandGeneration = useRef(0);
     const latestPositionRequest = useRef<Promise<unknown> | null>(null);
     const tracksRefreshInFlight = useRef(false);
     const loopModeRef = useRef(loopMode);
@@ -137,12 +139,15 @@ export default function PlayNowPage() {
             if (latestPositionRequest.current) {
                 return latestPositionRequest.current;
             }
+            const generation = positionCommandGeneration.current;
             const request = updatePlayNowState(state)
                 .then((nextState) => {
-                    lastStateRevision.current = Math.max(
-                        lastStateRevision.current,
-                        nextState.revision
-                    );
+                    if (generation === positionCommandGeneration.current) {
+                        lastStateRevision.current = Math.max(
+                            lastStateRevision.current,
+                            nextState.revision
+                        );
+                    }
                     return nextState;
                 })
                 .catch((commandError: unknown) => {
@@ -159,9 +164,13 @@ export default function PlayNowPage() {
             return request;
         }
 
+        positionCommandGeneration.current += 1;
         commandQueue.current = commandQueue.current
             .catch(() => undefined)
             .then(async () => {
+                if (latestPositionRequest.current) {
+                    await latestPositionRequest.current;
+                }
                 const nextState = await updatePlayNowState(state);
                 lastStateRevision.current = Math.max(
                     lastStateRevision.current,
@@ -174,7 +183,14 @@ export default function PlayNowPage() {
                         ? commandError.message
                         : "PlayNow käsu saatmine ebaõnnestus"
                 );
+            })
+            .finally(() => {
+                controlCommandCount.current = Math.max(
+                    0,
+                    controlCommandCount.current - 1
+                );
             });
+        controlCommandCount.current += 1;
         return commandQueue.current;
     }
 
@@ -226,6 +242,25 @@ export default function PlayNowPage() {
         }
     }
 
+    function pause(sync = true) {
+        playbackGeneration.current += 1;
+        playingRef.current = false;
+        const pausedAt = audioRef.current?.currentTime ?? currentTime;
+        audioRef.current?.pause();
+        setPlaying(false);
+        setPaused(true);
+        setCurrentTime(pausedAt);
+        if (sync) {
+            void sendState({
+                action: "pause",
+                selectedFile,
+                playing: false,
+                position: pausedAt,
+                startedAt: null,
+            });
+        }
+    }
+
     function startSelectedTrack() {
         if (!selectedFile) {
             return;
@@ -273,6 +308,7 @@ export default function PlayNowPage() {
                 if (!isLocalPlayer) {
                     const wasPlaying = remoteClockRef.current.playing;
                     const wasSelectedFile = remoteClockRef.current.selectedFile;
+                    const isNewState = state.revision > lastStateRevision.current;
                     const nextUpdatedAt = Number.isFinite(state.updatedAt)
                         ? state.updatedAt
                         : Date.now();
@@ -281,9 +317,10 @@ export default function PlayNowPage() {
                         !wasPlaying ||
                         !state.playing ||
                         wasSelectedFile !== state.selectedFile ||
-                        state.action === "play" ||
-                        state.action === "stop" ||
-                        state.action === "position";
+                        (isNewState &&
+                            (state.action === "play" ||
+                                state.action === "stop" ||
+                                state.action === "position"));
                     if (shouldResetClock) {
                         remoteClockRef.current = {
                             position: nextPosition,
@@ -299,10 +336,24 @@ export default function PlayNowPage() {
                     setPlaying(state.playing);
                     setPaused(!state.playing);
                 }
-                if (state.revision <= lastStateRevision.current) {
+                const localAudio = audioRef.current;
+                const localPlaybackMismatch =
+                    isLocalPlayer &&
+                    Boolean(localAudio) &&
+                    ((state.action === "pause" || state.action === "stop") &&
+                        !localAudio?.paused ||
+                        state.action === "play" &&
+                        localAudio?.paused);
+                if (
+                    state.revision <= lastStateRevision.current &&
+                    !localPlaybackMismatch
+                ) {
                     return;
                 }
-                lastStateRevision.current = state.revision;
+                lastStateRevision.current = Math.max(
+                    lastStateRevision.current,
+                    state.revision
+                );
                 if (isLocalPlayer) {
                     if (state.action === "play" && state.selectedFile) {
                         if (
@@ -322,6 +373,11 @@ export default function PlayNowPage() {
                         }
                         stop(false);
                         setPaused(true);
+                    } else if (state.action === "pause") {
+                        if (audioRef.current) {
+                            audioRef.current.currentTime = state.position;
+                        }
+                        pause(false);
                     } else if (state.action === "loop" && audioRef.current) {
                         audioRef.current.loop = false;
                     } else if (state.action === "volume" && audioRef.current) {
@@ -385,7 +441,8 @@ export default function PlayNowPage() {
                 !audio ||
                 !audio.dataset.fileName ||
                 audio.paused ||
-                !playingRef.current
+                !playingRef.current ||
+                controlCommandCount.current > 0
             ) {
                 return;
             }
@@ -425,16 +482,18 @@ export default function PlayNowPage() {
     function stop(sync = true) {
         playbackGeneration.current += 1;
         playingRef.current = false;
-        const stoppedAt = audioRef.current?.currentTime ?? currentTime;
         audioRef.current?.pause();
+        if (audioRef.current) {
+            audioRef.current.currentTime = 0;
+        }
         setPlaying(false);
         setPaused(true);
-        setCurrentTime(stoppedAt);
+        setCurrentTime(0);
         if (sync) {
             void sendState({
                 action: "stop",
                 playing: false,
-                position: stoppedAt,
+                position: 0,
                 startedAt: null,
             });
         }
@@ -870,11 +929,20 @@ export default function PlayNowPage() {
 
                             <button
                                 type="button"
-                                onClick={paused ? continueTrack : () => stop()}
+                                onClick={paused ? continueTrack : () => pause()}
                                 className="flex h-[40px] items-center gap-[8px] rounded-[8px] border border-[#d9dee8] bg-white px-[18px] text-[13px] font-medium text-[#374151] transition hover:border-[#5798f5] hover:text-[#3f82df]"
                             >
-                                {paused ? <PlayIcon /> : <StopIcon />}
-                                {paused ? "Jätka" : "Stop"}
+                                {paused ? <PlayIcon /> : "||"}
+                                {paused ? "Jätka" : "Pause"}
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => stop()}
+                                className="flex h-[40px] items-center gap-[8px] rounded-[8px] border border-[#d9dee8] bg-white px-[18px] text-[13px] font-medium text-[#374151] transition hover:border-[#5798f5] hover:text-[#3f82df]"
+                            >
+                                <StopIcon />
+                                Stop
                             </button>
                         </div>
 

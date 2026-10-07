@@ -52,7 +52,6 @@ type Page =
     | "schedule-editor";
 
 
-const WEEK_DAYS = [1, 2, 3, 4, 5, 6, 7];
 const ACCESS_ROLE_STORAGE_KEY = "schoolbell-access-role";
 
 function getStoredAccessRole(): PinRole {

@@ -155,7 +155,7 @@ function getServerConnectionInfo() {
 type PlayNowLoopMode = "off" | "track" | "playlist";
 interface PlayNowState {
     revision: number;
-    action: "play" | "stop" | "loop" | "volume" | "select" | "position";
+    action: "play" | "pause" | "stop" | "loop" | "volume" | "select" | "position";
     selectedFile: string | null;
     playing: boolean;
     loopMode: PlayNowLoopMode;
@@ -568,7 +568,7 @@ app.put("/api/playnow/state", (req, res) => {
         playlist,
         baseRevision,
     } = req.body ?? {};
-    const validAction = ["play", "stop", "loop", "volume", "select", "position"].includes(action);
+    const validAction = ["play", "pause", "stop", "loop", "volume", "select", "position"].includes(action);
     const validLoop = ["off", "track", "playlist"].includes(loopMode);
     if (
         !validAction ||
