@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { getNtpServer } from "../api/api";
+import { getAppLogs, type AppLogEntry } from "../services/logService";
 import type { Schedule } from "../types";
 
 interface DashboardProps {
@@ -13,42 +15,37 @@ interface DashboardProps {
     onEditSchedule: (schedule: Schedule) => void;
 
     canManage: boolean;
+    onOpenLogs: () => void;
 }
 
-function getTimeUntilNextBell(time: string | undefined, now: Date): string {
-    if (!time) {
+function getTimeUntilNextBell(schedule: Schedule | null, now: Date): string {
+    if (!schedule) {
         return "—";
     }
 
-    const [hours, minutes] = time.split(":").map(Number);
+    const [hours, minutes] = schedule.time.split(":").map(Number);
 
     const next = new Date();
 
     next.setHours(hours, minutes, 0, 0);
 
-    if (next.getTime() < now.getTime()) {
-        return "hiljem täna";
+    if (next.getTime() <= now.getTime()) {
+        return "00:00";
     }
 
-    const difference = next.getTime() - now.getTime();
-
-    const minutesLeft = Math.floor(difference / 60000);
-
-    if (minutesLeft < 1) {
-        return "mõne sekundi pärast";
-    }
-
-    return `${minutesLeft} min pärast`;
+    const totalSeconds = Math.ceil((next.getTime() - now.getTime()) / 1000);
+    return `${String(Math.floor(totalSeconds / 60)).padStart(2, "0")}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
 function getNextSchedule(schedules: Schedule[], now: Date) {
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const currentSeconds =
+        now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
 
     return (
         schedules.find((schedule) => {
             const [hours, minutes] = schedule.time.split(":").map(Number);
 
-            return hours * 60 + minutes >= currentMinutes;
+            return hours * 3600 + minutes * 60 >= currentSeconds;
         }) ?? null
     );
 }
@@ -87,7 +84,29 @@ function DotsIcon() {
 }
 
 const ROW_GRID =
-    "grid grid-cols-[40px_84px_96px_minmax(0,1fr)_36px] items-center gap-[16px]";
+    "grid grid-cols-[40px_84px_minmax(0,1fr)_36px] items-center gap-[16px]";
+const DASHBOARD_LOGS_SEEN_KEY = "schoolbell-dashboard-logs-seen-at";
+const DASHBOARD_LOG_IDS_SEEN_KEY = "schoolbell-dashboard-log-ids-seen";
+
+function readSeenDashboardLogIds() {
+    try {
+        const value = JSON.parse(
+            localStorage.getItem(DASHBOARD_LOG_IDS_SEEN_KEY) ?? "[]"
+        );
+        return new Set<string>(
+            Array.isArray(value)
+                ? value.filter((id): id is string => typeof id === "string")
+                : []
+        );
+    } catch {
+        return new Set<string>();
+    }
+}
+
+function getDashboardLogKey(log: AppLogEntry) {
+    return log.id ||
+        `${log.timestamp}|${log.level}|${log.message}|${log.details ?? ""}`;
+}
 
 export default function Dashboard({
     schedules,
@@ -95,41 +114,92 @@ export default function Dashboard({
     onToggleAutomatic,
     onEditSchedule,
     canManage,
+    onOpenLogs,
 }: DashboardProps) {
     const [now, setNow] = useState(() => new Date());
+    const [clockOffsetMs, setClockOffsetMs] = useState(0);
+    const [syncingTime, setSyncingTime] = useState(false);
+    const [syncError, setSyncError] = useState("");
+    const [importantLogs, setImportantLogs] = useState<AppLogEntry[]>([]);
+    const seenDashboardLogsAt = useRef(
+        Number(
+            localStorage.getItem(DASHBOARD_LOGS_SEEN_KEY) ??
+                sessionStorage.getItem(DASHBOARD_LOGS_SEEN_KEY) ??
+                "0"
+        )
+    );
+    const seenDashboardLogIds = useRef(readSeenDashboardLogIds());
 
     const [ntpOffsetMs, setNtpOffsetMs] = useState<number | null>(null);
+    const [ntpServer, setNtpServer] = useState("ntp1.eenet.ee");
 
-    useEffect(() => {
+    async function checkTime() {
+        const server = await getNtpServer();
+        setNtpServer(server);
         if (!window.electronAPI?.getNtpTime) {
             return;
         }
+        const result = await window.electronAPI.getNtpTime(server);
+        setNtpOffsetMs(result.offsetMs);
+        setClockOffsetMs(result.offsetMs);
+    }
 
-        const syncTime = async () => {
-            try {
-                const result = await window.electronAPI?.getNtpTime();
-
-                setNtpOffsetMs(result?.offsetMs ?? null);
-            } catch {
-                setNtpOffsetMs(null);
+    async function synchronizeTime() {
+        setSyncingTime(true);
+        setSyncError("");
+        try {
+            const server = await getNtpServer();
+            setNtpServer(server);
+            if (!window.electronAPI?.syncSystemTime) {
+                throw new Error("Süsteemiaega saab sünkroonida ainult Windowsi rakenduses.");
             }
-        };
+            await window.electronAPI.syncSystemTime(server);
+            setNtpOffsetMs(0);
+            setClockOffsetMs(0);
+            setNow(new Date());
+        } catch (error) {
+            setSyncError(error instanceof Error ? error.message : "Aja sünkroonimine ebaõnnestus.");
+            throw error;
+        } finally {
+            setSyncingTime(false);
+        }
+    }
 
-        void syncTime();
-        const timer = window.setInterval(syncTime, 300_000);
+    useEffect(() => {
+        const refreshLogs = () => {
+            setImportantLogs(
+                getAppLogs().filter(
+                    (log) =>
+                        log.level !== "info" &&
+                            !seenDashboardLogIds.current.has(getDashboardLogKey(log)) &&
+                            new Date(log.timestamp).getTime() >
+                                seenDashboardLogsAt.current
+                )
+            );
+        };
+        refreshLogs();
+        const timer = window.setInterval(refreshLogs, 5000);
+        return () => window.clearInterval(timer);
+    }, []);
+
+    useEffect(() => {
+        void checkTime().catch(() => {
+            setNtpOffsetMs(null);
+        });
+        const timer = window.setInterval(() => {
+            void checkTime().catch(() => setNtpOffsetMs(null));
+        }, 300_000);
 
         return () => window.clearInterval(timer);
     }, []);
 
     useEffect(() => {
         const timer = window.setInterval(() => {
-            setNow(new Date());
+            setNow(new Date(Date.now() + clockOffsetMs));
         }, 1000);
 
         return () => window.clearInterval(timer);
-    }, []);
-
-    const visibleSchedules = schedules.slice(0, 4);
+    }, [clockOffsetMs]);
 
     const upcomingSchedule = getNextSchedule(schedules, now);
 
@@ -147,7 +217,7 @@ export default function Dashboard({
     });
 
     const ntpDifference =
-        ntpOffsetMs !== null && Math.abs(ntpOffsetMs) >= 500
+        ntpOffsetMs !== null && Math.abs(ntpOffsetMs) >= 1000
             ? ` · arvuti ${
                   ntpOffsetMs > 0 ? "jääb" : "on"
               } ${(Math.abs(ntpOffsetMs) / 1000).toFixed(1)} s ${
@@ -168,9 +238,66 @@ export default function Dashboard({
                     <p className="m-0 mt-[6px] text-[14px] text-[#647085]">
                         {dateLabel} ·{" "}
                         <span className="tabular-nums">{timeLabel}</span> · NTP
-                        ntp1.eenet.ee
+                        {ntpServer}
                         {ntpDifference}
+                        {ntpOffsetMs !== null && Math.abs(ntpOffsetMs) >= 1000 && (
+                            <button
+                                type="button"
+                                onClick={() => void synchronizeTime()}
+                                disabled={syncingTime}
+                                className="ml-[8px] rounded-[6px] border border-[#d9dee8] bg-white px-[8px] py-[3px] text-[12px] font-medium text-[#3f82df] disabled:opacity-50"
+                            >
+                                {syncingTime ? "Sünkroniseerin..." : "Sünkroniseeri"}
+                            </button>
+                        )}
                     </p>
+                    {syncError && (
+                        <p className="m-0 mt-[8px] text-[12px] text-[#b42318]">{syncError}</p>
+                    )}
+
+                    {importantLogs.length > 0 && (
+                        <div className="mt-[16px] flex items-center justify-between gap-[12px] rounded-[10px] border border-[#f1d39a] bg-[#fff9ed] px-[14px] py-[12px]">
+                            <div className="min-w-0">
+                                <p className="m-0 text-[13px] font-semibold text-[#8a5a00]">
+                                    {importantLogs.length} olulist logi: {importantLogs[0].level.toUpperCase()}
+                                </p>
+                                <p className="m-0 mt-[3px] truncate text-[12px] text-[#8a6b2d]">
+                                    {importantLogs[0].message}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const latestLogTimestamp = Math.max(
+                                        ...importantLogs.map((log) =>
+                                            new Date(log.timestamp).getTime()
+                                        )
+                                    );
+                                    seenDashboardLogsAt.current = latestLogTimestamp;
+                                    importantLogs.forEach((log) =>
+                                        seenDashboardLogIds.current.add(
+                                            getDashboardLogKey(log)
+                                        )
+                                    );
+                                    localStorage.setItem(
+                                        DASHBOARD_LOGS_SEEN_KEY,
+                                        String(latestLogTimestamp)
+                                    );
+                                    localStorage.setItem(
+                                        DASHBOARD_LOG_IDS_SEEN_KEY,
+                                        JSON.stringify([
+                                            ...seenDashboardLogIds.current,
+                                        ])
+                                    );
+                                    setImportantLogs([]);
+                                    onOpenLogs();
+                                }}
+                                className="shrink-0 rounded-[8px] bg-[#e0a43a] px-[12px] py-[8px] text-[12px] font-medium text-white"
+                            >
+                                Ava logid
+                            </button>
+                        </div>
+                    )}
                 </header>
 
                 {/* SYSTEM */}
@@ -219,7 +346,7 @@ export default function Dashboard({
 
                                 <p className="m-0 mt-[4px] text-[20px] font-medium leading-[40px] text-[#3f82df]">
                                     {getTimeUntilNextBell(
-                                        upcomingSchedule?.time,
+                                        upcomingSchedule,
                                         now
                                     )}
                                 </p>
@@ -249,13 +376,13 @@ export default function Dashboard({
                         Tänane ajakava
                     </h2>
 
-                    <div className="mt-[16px] flex flex-col gap-[10px]">
-                        {visibleSchedules.length === 0 ? (
+                    <div className="mt-[16px] grid grid-cols-1 gap-[10px] md:grid-cols-2">
+                        {schedules.length === 0 ? (
                             <div className="flex min-h-[76px] w-full items-center justify-center rounded-[12px] bg-white px-[24px] text-[15px] text-[#647085] shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
                                 Tänane ajakava puudub
                             </div>
                         ) : (
-                            visibleSchedules.map((schedule, index) => {
+                            schedules.map((schedule, index) => {
                                 const isNext =
                                     upcomingSchedule?.id === schedule.id;
 
@@ -280,20 +407,6 @@ export default function Dashboard({
                                             {schedule.time}
                                         </span>
 
-                                        {/* TYPE */}
-
-                                        <span className="flex items-center gap-[8px]">
-                                            <span className="rounded-full bg-[#f1f4f8] px-[10px] py-[2px] text-[12px] font-medium text-[#647085]">
-                                                Tund
-                                            </span>
-
-                                            {isNext && (
-                                                <span className="rounded-full bg-[#eaf2ff] px-[8px] py-[2px] text-[11px] font-medium text-[#3f82df]">
-                                                    Järgmine
-                                                </span>
-                                            )}
-                                        </span>
-
                                         {/* SOUND */}
 
                                         <span className="flex min-w-0 items-center gap-[8px] text-[14px] text-[#647085]">
@@ -303,6 +416,16 @@ export default function Dashboard({
                                                 {schedule.sound?.name ??
                                                     "koolikell.mp3"}
                                             </span>
+                                            {schedule.preBellEnabled && (
+                                                <span className="shrink-0 rounded-full bg-[#eaf2ff] px-[8px] py-[2px] text-[11px] font-medium text-[#3f82df]">
+                                                    Eelhelin
+                                                </span>
+                                            )}
+                                            {isNext && (
+                                                <span className="shrink-0 rounded-full bg-[#eaf2ff] px-[8px] py-[2px] text-[11px] font-medium text-[#3f82df]">
+                                                    Järgmine
+                                                </span>
+                                            )}
                                         </span>
 
                                         {/* MORE */}

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { setAudioOutputDevice } from "../services/bellAudio";
+import { onAudioDeviceChange } from "../services/audioService";
 import {
     deletePlayNowTrack,
     getPlayNowTrackUrl,
@@ -93,6 +95,17 @@ export default function PlayNowPage() {
     });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+
+    useEffect(() => {
+        const unsubscribe = onAudioDeviceChange(() => {
+            if (audioRef.current) {
+                void setAudioOutputDevice(audioRef.current).catch((error) => {
+                    console.error("Failed to switch active PlayNow device:", error);
+                });
+            }
+        });
+        return unsubscribe;
+    }, []);
     const [isDragging, setIsDragging] = useState(false);
     const [draggedFile, setDraggedFile] = useState<string | null>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -277,7 +290,11 @@ export default function PlayNowPage() {
             return;
         }
 
-        void audioRef.current.play();
+        void setAudioOutputDevice(audioRef.current)
+            .catch((error) => {
+                console.error("Failed to select audio device:", error);
+            })
+            .then(() => audioRef.current?.play());
         setPlaying(true);
         playingRef.current = true;
         setPaused(false);
@@ -361,7 +378,11 @@ export default function PlayNowPage() {
                             audioRef.current.dataset.fileName === state.selectedFile
                         ) {
                             audioRef.current.currentTime = state.position;
-                            void audioRef.current.play();
+                            void setAudioOutputDevice(audioRef.current)
+                                .catch((error) => {
+                                    console.error("Failed to select audio device:", error);
+                                })
+                                .then(() => audioRef.current?.play());
                             setPlaying(true);
                             setPaused(false);
                         } else {
@@ -533,6 +554,9 @@ export default function PlayNowPage() {
         audio.currentTime = startTime;
         audio.volume = volumeRef.current / 100;
         audio.loop = false;
+        void setAudioOutputDevice(audio).catch((error) => {
+            console.error("Failed to select audio device:", error);
+        });
         audio.onloadedmetadata = () => setDuration(audio.duration);
         audio.ontimeupdate = () => setCurrentTime(audio.currentTime);
         audio.onended = () => {
@@ -575,12 +599,17 @@ export default function PlayNowPage() {
         playingRef.current = true;
         setPaused(false);
         setCurrentTime(startTime);
-        void audio.play().catch(() => {
+        void setAudioOutputDevice(audio)
+            .catch((error) => {
+                console.error("Failed to select audio device:", error);
+            })
+            .then(() => audio.play())
+            .catch(() => {
             if (generation === playbackGeneration.current) {
                 setPlaying(false);
                 playingRef.current = false;
             }
-        });
+            });
     }
 
     function handleVolumeChange(nextVolume: number) {

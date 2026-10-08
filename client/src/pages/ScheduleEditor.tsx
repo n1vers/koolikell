@@ -16,6 +16,7 @@ interface ScheduleEditorProps {
     ) => Promise<void>;
     onUpdateSchedule: (schedule: Schedule) => Promise<void>;
     onDeleteSchedule: (schedule: Schedule) => Promise<void>;
+    onRenameProfile: (name: string) => Promise<void>;
 }
 
 // Единая сетка для заголовка и строк, чтобы колонки всегда совпадали
@@ -45,8 +46,12 @@ export default function ScheduleEditor({
     onAddSchedule,
     onUpdateSchedule,
     onDeleteSchedule,
+    onRenameProfile,
 }: ScheduleEditorProps) {
     const [saving, setSaving] = useState(false);
+    const [editingProfileName, setEditingProfileName] = useState(false);
+    const [profileNameDraft, setProfileNameDraft] = useState(profileName);
+    const [savingProfileName, setSavingProfileName] = useState(false);
 
     const [newTime, setNewTime] = useState("08:00");
 
@@ -67,6 +72,7 @@ export default function ScheduleEditor({
     );
 
     const [timeDrafts, setTimeDrafts] = useState<Record<number, string>>({});
+    const [addError, setAddError] = useState("");
 
     function rememberSound(
         key: string,
@@ -85,6 +91,20 @@ export default function ScheduleEditor({
     // ADD
 
     async function handleAdd() {
+        if (newSoundId === null) {
+            setAddError(
+                newPreBellEnabled
+                    ? "Vali põhikella heli ja eelheli."
+                    : "Vali põhikella heli."
+            );
+            return;
+        }
+        if (newPreBellEnabled && newPreBellSoundId === null) {
+            setAddError("Vali eelheli või lülita eelhelin välja.");
+            return;
+        }
+
+        setAddError("");
         try {
             await onAddSchedule(
                 newTime,
@@ -110,6 +130,27 @@ export default function ScheduleEditor({
             console.error("Failed to save:", error);
         } finally {
             setSaving(false);
+        }
+
+    }
+
+    async function saveProfileName() {
+        const name = profileNameDraft.trim();
+        if (!name || name === profileName) {
+            setProfileNameDraft(profileName);
+            setEditingProfileName(false);
+            return;
+        }
+
+        try {
+            setSavingProfileName(true);
+            await onRenameProfile(name);
+            setEditingProfileName(false);
+        } catch (error) {
+            console.error("Failed to rename profile:", error);
+            setProfileNameDraft(profileName);
+        } finally {
+            setSavingProfileName(false);
         }
     }
 
@@ -163,9 +204,38 @@ export default function ScheduleEditor({
                         ← Profil
                     </button>
 
-                    <h1 className="text-[28px] font-semibold leading-tight text-[#202633]">
-                        {profileName}
-                    </h1>
+                    {editingProfileName ? (
+                        <input
+                            autoFocus
+                            value={profileNameDraft}
+                            onChange={(event) => setProfileNameDraft(event.target.value)}
+                            onBlur={() => void saveProfileName()}
+                            onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    void saveProfileName();
+                                }
+                                if (event.key === "Escape") {
+                                    setProfileNameDraft(profileName);
+                                    setEditingProfileName(false);
+                                }
+                            }}
+                            disabled={savingProfileName}
+                            className="h-[40px] w-full max-w-[520px] rounded-[8px] border border-[#5798f5] bg-white px-[10px] text-[28px] font-semibold leading-tight text-[#202633] outline-none"
+                            aria-label="Profiili nimi"
+                        />
+                    ) : (
+                        <h1
+                            className="cursor-text text-[28px] font-semibold leading-tight text-[#202633]"
+                            onClick={() => {
+                                setProfileNameDraft(profileName);
+                                setEditingProfileName(true);
+                            }}
+                            title="Klõpsa nime muutmiseks"
+                        >
+                            {profileName}
+                        </h1>
+                    )}
 
                     <p className="mt-[6px] text-[14px] text-[#7d899d]">
                         Muutke kellade aega, tüüpi ja helisid
@@ -182,6 +252,15 @@ export default function ScheduleEditor({
                 </button>
             </div>
 
+            <div className="mb-[10px] mt-[28px]">
+                <h2 className="m-0 text-[18px] font-semibold text-[#303846]">
+                    Olemasolevad kellad
+                </h2>
+                <p className="m-0 mt-[4px] text-[13px] text-[#8490a3]">
+                    Muuda välju otse reas või kustuta kell.
+                </p>
+            </div>
+
             {/* TABLE HEADER */}
 
             <div
@@ -189,9 +268,9 @@ export default function ScheduleEditor({
             >
                 <span>№</span>
                 <span>Aeg</span>
-                <span>Predzvon</span>
+                <span>Põhikella heli</span>
                 <span>Seisund</span>
-                <span>Heli</span>
+                <span>Eelhelin</span>
                 <span />
             </div>
 
@@ -226,41 +305,24 @@ export default function ScheduleEditor({
                             className="h-[32px] w-[88px] rounded-[6px] border border-transparent bg-transparent px-[4px] text-[14px] font-medium text-[#28303d] outline-none transition hover:border-[#e2e7ef] focus:border-[#5798f5]"
                         />
 
-                        {/* PRE BELL */}
+                        {/* SOUND */}
 
-                        <div className="flex min-w-0 items-center gap-[10px]">
-                            <input
-                                type="checkbox"
-                                checked={schedule.preBellEnabled}
-                                onChange={(event) =>
-                                    void updateSchedule(schedule, {
-                                        preBellEnabled: event.target.checked,
-                                    })
-                                }
-                                aria-label="Predzvon sisse"
-                                className="h-[16px] w-[16px] shrink-0 cursor-pointer accent-[#5798f5]"
-                            />
-
-                            <select
-                                value={schedule.preBellSoundId ?? ""}
-                                disabled={!schedule.preBellEnabled}
-                                onChange={(event) =>
-                                    void updateSchedule(schedule, {
-                                        preBellSoundId: toId(
-                                            event.target.value
-                                        ),
-                                    })
-                                }
-                                className={SELECT_BASE}
-                            >
-                                <option value="">Predzvoni heli</option>
-                                {sounds.map((sound) => (
-                                    <option key={sound.id} value={sound.id}>
-                                        {sound.name}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
+                        <select
+                            value={schedule.soundId ?? ""}
+                            onChange={(event) =>
+                                void updateSchedule(schedule, {
+                                    soundId: toId(event.target.value),
+                                })
+                            }
+                            className={SELECT_BASE}
+                        >
+                            <option value=""> </option>
+                            {sounds.map((sound) => (
+                                <option key={sound.id} value={sound.id}>
+                                    {sound.name}
+                                </option>
+                            ))}
+                        </select>
 
                         {/* ENABLED */}
 
@@ -281,24 +343,41 @@ export default function ScheduleEditor({
                             </span>
                         </label>
 
-                        {/* SOUND */}
+                        {/* PRE BELL */}
 
-                        <select
-                            value={schedule.soundId ?? ""}
-                            onChange={(event) =>
-                                void updateSchedule(schedule, {
-                                    soundId: toId(event.target.value),
-                                })
-                            }
-                            className={SELECT_BASE}
-                        >
-                            <option value="">Heli pole määratud</option>
-                            {sounds.map((sound) => (
-                                <option key={sound.id} value={sound.id}>
-                                    {sound.name}
-                                </option>
-                            ))}
-                        </select>
+                        <div className="flex min-w-0 items-center gap-[10px]">
+                            <input
+                                type="checkbox"
+                                checked={schedule.preBellEnabled}
+                                onChange={(event) =>
+                                    void updateSchedule(schedule, {
+                                        preBellEnabled: event.target.checked,
+                                    })
+                                }
+                                aria-label="Eelhelin sisse"
+                                className="h-[16px] w-[16px] shrink-0 cursor-pointer accent-[#5798f5]"
+                            />
+
+                            <select
+                                value={schedule.preBellSoundId ?? ""}
+                                disabled={!schedule.preBellEnabled}
+                                onChange={(event) =>
+                                    void updateSchedule(schedule, {
+                                        preBellSoundId: toId(
+                                            event.target.value
+                                        ),
+                                    })
+                                }
+                                className={SELECT_BASE}
+                            >
+                                <option value=""></option>
+                                {sounds.map((sound) => (
+                                    <option key={sound.id} value={sound.id}>
+                                        {sound.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
 
                         {/* DELETE */}
 
@@ -317,9 +396,12 @@ export default function ScheduleEditor({
 
             {/* ADD */}
 
-            <div className="mt-[28px] rounded-[12px] bg-white p-[20px] shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
-                <div className="mb-[16px] text-[14px] font-semibold text-[#303846]">
-                    Lisa kell
+            <div className="mt-[36px] rounded-[12px] border border-[#dfe8f5] bg-[#f8fbff] p-[20px] shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+                <div className="mb-[4px] text-[18px] font-semibold text-[#303846]">
+                    Lisa uus kell
+                </div>
+                <div className="mb-[16px] text-[13px] text-[#8490a3]">
+                    See vorm lisab uue kella profiili. Olemasolevate kellade muutmine toimub ülalolevas nimekirjas.
                 </div>
 
                 <div className="grid grid-cols-[120px_150px_minmax(180px,1fr)_minmax(180px,1fr)_auto] items-end gap-[16px]">
@@ -336,27 +418,6 @@ export default function ScheduleEditor({
                         />
                     </div>
 
-                    {/* PRE BELL */}
-
-                    <div>
-                        <FieldLabel>Predzvon</FieldLabel>
-
-                        <label className="flex h-[40px] cursor-pointer items-center gap-[8px] rounded-[8px] border border-[#e2e7ef] bg-white px-[12px]">
-                            <input
-                                type="checkbox"
-                                checked={newPreBellEnabled}
-                                onChange={(event) =>
-                                    setNewPreBellEnabled(event.target.checked)
-                                }
-                                className="h-[16px] w-[16px] cursor-pointer accent-[#5798f5]"
-                            />
-
-                            <span className="text-[13px] text-[#596577]">
-                                Kasuta
-                            </span>
-                        </label>
-                    </div>
-
                     {/* SOUND */}
 
                     <div className="min-w-0">
@@ -365,15 +426,23 @@ export default function ScheduleEditor({
                         <select
                             value={newSoundId ?? ""}
                             onChange={(event) =>
-                                rememberSound(
-                                    "schoolbell-default-sound-id",
-                                    toId(event.target.value),
-                                    setNewSoundId
-                                )
+                                (() => {
+                                    setAddError("");
+                                    rememberSound(
+                                        "schoolbell-default-sound-id",
+                                        toId(event.target.value),
+                                        setNewSoundId
+                                    );
+                                })()
                             }
-                            className={INPUT_BASE}
+                            aria-invalid={newSoundId === null}
+                            className={`${INPUT_BASE} ${
+                                newSoundId === null
+                                    ? "border-[#e05252]"
+                                    : ""
+                            }`}
                         >
-                            <option value="">Heli pole määratud</option>
+                            <option value=""> </option>
                             {sounds.map((sound) => (
                                 <option key={sound.id} value={sound.id}>
                                     {sound.name}
@@ -385,21 +454,33 @@ export default function ScheduleEditor({
                     {/* PRE BELL SOUND */}
 
                     <div className="min-w-0">
-                        <FieldLabel>Predzvoni heli</FieldLabel>
+                        <FieldLabel>Eelheli</FieldLabel>
 
                         <select
                             value={newPreBellSoundId ?? ""}
                             disabled={!newPreBellEnabled}
                             onChange={(event) =>
-                                rememberSound(
-                                    "schoolbell-default-pre-bell-sound-id",
-                                    toId(event.target.value),
-                                    setNewPreBellSoundId
-                                )
+                                (() => {
+                                    setAddError("");
+                                    rememberSound(
+                                        "schoolbell-default-pre-bell-sound-id",
+                                        toId(event.target.value),
+                                        setNewPreBellSoundId
+                                    );
+                                })()
                             }
-                            className={`${INPUT_BASE} disabled:cursor-not-allowed disabled:bg-[#f5f7fb] disabled:text-[#a3adbd]`}
+                            aria-invalid={
+                                newPreBellEnabled &&
+                                newPreBellSoundId === null
+                            }
+                            className={`${INPUT_BASE} ${
+                                newPreBellEnabled &&
+                                newPreBellSoundId === null
+                                    ? "border-[#e05252]"
+                                    : ""
+                            } disabled:cursor-not-allowed disabled:bg-[#f5f7fb] disabled:text-[#a3adbd]`}
                         >
-                            <option value="">Predzvoni heli</option>
+                            <option value=""> </option>
                             {sounds.map((sound) => (
                                 <option key={sound.id} value={sound.id}>
                                     {sound.name}
@@ -407,6 +488,36 @@ export default function ScheduleEditor({
                             ))}
                         </select>
                     </div>
+
+                    {/* PRE BELL */}
+
+                    <div>
+                        <FieldLabel>Eelhelin</FieldLabel>
+
+                        <label className="flex h-[40px] cursor-pointer items-center gap-[8px] rounded-[8px] border border-[#e2e7ef] bg-white px-[12px]">
+                            <input
+                                type="checkbox"
+                                checked={newPreBellEnabled}
+                                onChange={(event) =>
+                                    (() => {
+                                        setAddError("");
+                                        setNewPreBellEnabled(event.target.checked);
+                                    })()
+                                }
+                                className="h-[16px] w-[16px] cursor-pointer accent-[#5798f5]"
+                            />
+
+                            <span className="text-[13px] text-[#596577]">
+                                Kasuta
+                            </span>
+                        </label>
+                    </div>
+
+                    {addError && (
+                        <p className="col-span-full m-0 text-[12px] text-[#b42318]">
+                            {addError}
+                        </p>
+                    )}
 
                     {/* ADD BUTTON */}
 

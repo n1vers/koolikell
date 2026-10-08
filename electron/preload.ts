@@ -4,8 +4,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
     openPlayNowFolder: () =>
         ipcRenderer.invoke("playnow-folder:open"),
 
-    getNtpTime: () =>
-        ipcRenderer.invoke("time:ntp"),
+    getNtpTime: (server?: string) =>
+        ipcRenderer.invoke("time:ntp", server),
+
+    syncSystemTime: (server?: string) =>
+        ipcRenderer.invoke("time:sync-system", server),
+
+    openExternal: (url: string) =>
+        ipcRenderer.invoke("browser:open", url),
 
     getConnectionInfo: () =>
         ipcRenderer.invoke("connection-info:get"),
@@ -30,6 +36,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
             "windows-settings:set",
             settings
         ),
+
+    setAutomaticEnabled: (enabled: boolean) =>
+        ipcRenderer.invoke("automatic-enabled:set", enabled),
 
     writeLogFile: (entry: {
         timestamp: string;

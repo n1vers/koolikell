@@ -8,6 +8,15 @@ import { API_URL } from "./apiBase";
 
 export type PinRole = "master" | "playnow" | null;
 
+export async function getPinStatus(): Promise<boolean> {
+    const response = await fetch(`${API_URL}/api/settings/pins`);
+    if (!response.ok) {
+        throw new Error("PIN-ide oleku laadimine ebaõnnestus");
+    }
+    const data = (await response.json()) as { configured: boolean };
+    return data.configured;
+}
+
 export interface ProfileAssignments {
     profileByDay: Record<string, number | null>;
     profileByDate: Record<string, number | null>;
@@ -20,6 +29,28 @@ export async function getAutomaticEnabled(): Promise<boolean> {
     }
     const data = (await response.json()) as { enabled: boolean };
     return data.enabled;
+}
+
+export async function getNtpServer(): Promise<string> {
+    const response = await fetch(`${API_URL}/api/settings/ntp`);
+    if (!response.ok) {
+        throw new Error("Failed to load NTP server");
+    }
+    const data = (await response.json()) as { server: string };
+    return data.server;
+}
+
+export async function setNtpServer(server: string): Promise<string> {
+    const response = await fetch(`${API_URL}/api/settings/ntp`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ server }),
+    });
+    if (!response.ok) {
+        throw new Error("Failed to save NTP server");
+    }
+    const data = (await response.json()) as { server: string };
+    return data.server;
 }
 
 export async function setAutomaticEnabled(enabled: boolean): Promise<boolean> {
@@ -136,6 +167,15 @@ export async function updatePins(
     });
     if (!response.ok) {
         throw new Error("PIN-ide salvestamine ebaõnnestus");
+    }
+}
+
+export async function disablePins(): Promise<void> {
+    const response = await fetch(`${API_URL}/api/settings/pins`, {
+        method: "DELETE",
+    });
+    if (!response.ok) {
+        throw new Error("PIN-ide väljalülitamine ebaõnnestus");
     }
 }
 

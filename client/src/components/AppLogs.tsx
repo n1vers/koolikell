@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
     clearAppLogs,
     getAppLogs,
@@ -32,6 +32,16 @@ const HEADER_BTN =
 
 export default function AppLogs() {
     const [logs, setLogs] = useState<AppLogEntry[]>(getAppLogs);
+    const [filter, setFilter] = useState<"all" | AppLogEntry["level"]>("all");
+
+    const counts = useMemo(() => ({
+        info: logs.filter((log) => log.level === "info").length,
+        warn: logs.filter((log) => log.level === "warn").length,
+        error: logs.filter((log) => log.level === "error").length,
+    }), [logs]);
+    const visibleLogs = filter === "all"
+        ? logs
+        : logs.filter((log) => log.level === filter);
 
     function handleClear() {
         clearAppLogs();
@@ -43,7 +53,7 @@ export default function AppLogs() {
     }
 
     return (
-        <section className="mt-[18px] w-full max-w-[960px] rounded-[12px] bg-white p-[24px] shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+        <section id="app-logs" className="mt-[18px] w-full max-w-[960px] rounded-[12px] bg-white p-[24px] shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
             {/* HEADER */}
 
             <div className="flex items-start justify-between gap-[16px]">
@@ -83,15 +93,37 @@ export default function AppLogs() {
                 </div>
             </div>
 
+            <div className="mt-[16px] flex flex-wrap gap-[8px]">
+                {([
+                    ["all", "Kõik", logs.length],
+                    ["error", "ERROR", counts.error],
+                    ["warn", "WARN", counts.warn],
+                    ["info", "INFO", counts.info],
+                ] as const).map(([value, label, count]) => (
+                    <button
+                        key={value}
+                        type="button"
+                        onClick={() => setFilter(value)}
+                        className={`rounded-full border px-[10px] py-[5px] text-[12px] font-medium ${
+                            filter === value
+                                ? "border-[#5798f5] bg-[#eaf2ff] text-[#3f82df]"
+                                : "border-[#d9dee8] bg-white text-[#647085]"
+                        }`}
+                    >
+                        {label} · {count}
+                    </button>
+                ))}
+            </div>
+
             {/* LIST */}
 
             <div className="mt-[18px] max-h-[340px] overflow-y-auto rounded-[10px] border border-[#eef1f5] bg-[#fafbfd]">
-                {logs.length === 0 ? (
+                {visibleLogs.length === 0 ? (
                     <p className="m-0 px-[16px] py-[28px] text-center text-[13px] text-[#8a93a3]">
                         Logisid pole.
                     </p>
                 ) : (
-                    logs.map((log) => {
+                    visibleLogs.map((log) => {
                         const styles =
                             LEVEL_STYLES[log.level] ?? LEVEL_STYLES.default;
 

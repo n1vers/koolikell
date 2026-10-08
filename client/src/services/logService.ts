@@ -10,6 +10,7 @@ export interface AppLogEntry {
 
 const STORAGE_KEY = "schoolbell-app-logs";
 const MAX_LOGS = 250;
+const DUPLICATE_WINDOW_MS = 30_000;
 let runtimeLoggingInstalled = false;
 
 function readLogs(): AppLogEntry[] {
@@ -44,6 +45,17 @@ export function writeAppLog(
     message: string,
     details?: unknown
 ) {
+    const existingLogs = readLogs();
+    const duplicate = existingLogs.find(
+        (item) =>
+            item.level === level &&
+            item.message === message &&
+            Date.now() - new Date(item.timestamp).getTime() < DUPLICATE_WINDOW_MS
+    );
+    if (duplicate) {
+        return;
+    }
+
     const entry: AppLogEntry = {
         id: `${Date.now()}-${Math.random()}`,
         timestamp: new Date().toISOString(),
@@ -61,7 +73,7 @@ export function writeAppLog(
         STORAGE_KEY,
         JSON.stringify([
             entry,
-            ...readLogs(),
+            ...existingLogs,
         ].slice(0, MAX_LOGS))
     );
 

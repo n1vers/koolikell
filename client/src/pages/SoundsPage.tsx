@@ -8,6 +8,8 @@ import {
     getSoundUrl,
     type Sound,
 } from "../services/soundService";
+import { setAudioOutputDevice } from "../services/bellAudio";
+import { onAudioDeviceChange } from "../services/audioService";
 
 // ============================================
 // ICONS
@@ -83,6 +85,17 @@ export default function SoundsPage() {
     const [editingName, setEditingName] = useState("");
     const [isDragging, setIsDragging] = useState(false);
     const [uploadError, setUploadError] = useState("");
+
+    useEffect(() => {
+        const unsubscribe = onAudioDeviceChange(() => {
+            if (audioRef.current) {
+                void setAudioOutputDevice(audioRef.current).catch((error) => {
+                    console.error("Failed to switch active sound preview device:", error);
+                });
+            }
+        });
+        return unsubscribe;
+    }, []);
 
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -268,7 +281,7 @@ export default function SoundsPage() {
         setPlayingId(null);
     }
 
-    function playSound(sound: Sound) {
+    async function playSound(sound: Sound) {
         stopAudio();
         const generation = ++playbackGeneration.current;
 
@@ -277,6 +290,11 @@ export default function SoundsPage() {
         audioRef.current = audio;
 
         setPlayingId(sound.id);
+        try {
+            await setAudioOutputDevice(audio);
+        } catch (error) {
+            console.error("Failed to select audio device:", error);
+        }
 
         audio.onended = () => {
             if (generation !== playbackGeneration.current) {
@@ -397,6 +415,37 @@ export default function SoundsPage() {
                     >
                         Ava helide kaust
                     </button>
+                </div>
+
+                <div className="mb-[20px] rounded-[10px] border border-[#e2e7ef] bg-[#f8fbff] px-[14px] py-[12px]">
+                    <p className="m-0 text-[13px] font-medium text-[#1f2937]">
+                        Kas otsid uusi heliefekte?
+                    </p>
+                    <p className="m-0 mt-[4px] text-[12px] leading-[18px] text-[#8792a5]">
+                        Tasuta helisid võib leida näiteks nendelt saitidelt:
+                    </p>
+                    <div className="mt-[8px] flex flex-wrap gap-x-[12px] gap-y-[4px] text-[12px]">
+                        {[
+                            ["Freesound", "https://freesound.org/"],
+                            ["Pixabay", "https://pixabay.com/sound-effects/"],
+                            ["Mixkit", "https://mixkit.co/free-sound-effects/"],
+                        ].map(([name, url]) => (
+                            <button
+                                key={url}
+                                type="button"
+                                onClick={() => {
+                                    if (window.electronAPI?.openExternal) {
+                                        void window.electronAPI.openExternal(url);
+                                    } else {
+                                        window.open(url, "_blank", "noopener,noreferrer");
+                                    }
+                                }}
+                                className="border-0 bg-transparent p-0 text-[#3f82df] hover:underline"
+                            >
+                                {name}
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 {/* ERROR */}

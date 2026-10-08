@@ -12,7 +12,8 @@ import path from "path";
 import fs from "fs";
 import os from "os";
 import dgram from "dgram";
-import { spawn } from "child_process";
+import { execFile, spawn } from "child_process";
+import { promisify } from "util";
 
 
 let mainWindow: BrowserWindow | null = null;
@@ -22,6 +23,7 @@ let isQuitting = false;
 let serverProcess:
     ReturnType<typeof spawn> | null = null;
 const FRONTEND_PORT = 5173;
+const execFileAsync = promisify(execFile);
 
 function writeMainLog(level: "info" | "warn" | "error", message: string, details?: unknown) {
     try {
@@ -50,6 +52,7 @@ interface NtpResult {
     server: string;
     offsetMs: number;
     checkedAt: string;
+    targetTimeMs: number;
 }
 
 interface ConnectionInfo {
@@ -57,6 +60,11 @@ interface ConnectionInfo {
     port: number;
     interfaceName: string | null;
     connectionType: "ethernet" | "wifi" | "other" | "none";
+    addresses: Array<{
+        address: string;
+        interfaceName: string;
+        connectionType: "ethernet" | "wifi" | "other";
+    }>;
 }
 
 function getConnectionInfo(): ConnectionInfo {
@@ -87,7 +95,8 @@ function getConnectionInfo(): ConnectionInfo {
         }
     }
 
-    const selected = candidates.sort((a, b) => a.priority - b.priority)[0];
+    const sortedCandidates = candidates.sort((a, b) => a.priority - b.priority);
+    const selected = sortedCandidates[0];
     const connectionType =
         selected === undefined
             ? "none"
@@ -102,6 +111,11 @@ function getConnectionInfo(): ConnectionInfo {
         port: FRONTEND_PORT,
         interfaceName: selected?.name ?? null,
         connectionType,
+        addresses: sortedCandidates.map(({ address, name, priority }) => ({
+            address,
+            interfaceName: name,
+            connectionType: priority === 0 ? "ethernet" : priority === 1 ? "wifi" : "other",
+        })),
     };
 }
 
@@ -152,6 +166,7 @@ function queryNtpServer(
                 server,
                 offsetMs,
                 checkedAt: new Date().toISOString(),
+                targetTimeMs: Date.now() + offsetMs,
             });
         });
 
@@ -226,26 +241,8 @@ const dataPlayNowPath = path.join(
 
 function prepareDataDirectory() {
     fs.mkdirSync(dataRoot, { recursive: true });
-
-    const bundledServerRoot = path.join(
-        projectRoot,
-        "server"
-    );
-
-    for (const directory of ["sounds", "playnow"]) {
-        const target = path.join(dataRoot, directory);
-        const source = path.join(bundledServerRoot, directory);
-
-        fs.mkdirSync(target, { recursive: true });
-
-        if (fs.existsSync(source)) {
-            fs.cpSync(source, target, {
-                recursive: true,
-                force: false,
-                errorOnExist: false,
-            });
-        }
-    }
+    fs.mkdirSync(dataSoundsPath, { recursive: true });
+    fs.mkdirSync(dataPlayNowPath, { recursive: true });
 }
 
 
@@ -493,7 +490,9 @@ ipcMain.handle(
         settings: WindowsSettings
     ): WindowsSettings => {
         app.setLoginItemSettings({
+            path: process.execPath,
             openAtLogin: settings.openAtLogin,
+            name: app.getName(),
             args: settings.openAsHidden
                 ? ["--hidden"]
                 : [],
@@ -623,9 +622,7 @@ function createTray() {
     const iconPath = app.isPackaged
         ? path.join(projectRoot, "build", "icon.ico")
         : path.resolve(__dirname, "..", "build", "icon.ico");
-    const icon = nativeImage
-        .createFromPath(iconPath)
-        .resize({ width: 16, height: 16 });
+    const icon = createTrayIcon(iconPath, true);
 
     if (icon.isEmpty()) {
         throw new Error(`Failed to load tray icon from ${iconPath}`);
@@ -650,6 +647,45 @@ function createTray() {
     );
 
     tray.on("double-click", () => mainWindow?.show());
+}
+
+function createTrayIcon(iconPath: string, enabled: boolean) {
+    const source = nativeImage.createFromPath(iconPath);
+    if (source.isEmpty()) {
+        throw new Error(`Failed to load tray icon from ${iconPath}`);
+    }
+
+    const size = source.getSize();
+    const bitmap = source.toBitmap();
+    if (!enabled) {
+        for (let index = 0; index < bitmap.length; index += 4) {
+            const blue = bitmap[index];
+            const green = bitmap[index + 1];
+            const red = bitmap[index + 2];
+            const luminance = Math.round(
+                red * 0.299 + green * 0.587 + blue * 0.114
+            );
+            bitmap[index] = luminance;
+            bitmap[index + 1] = luminance;
+            bitmap[index + 2] = luminance;
+        }
+    }
+
+    return nativeImage
+        .createFromBitmap(bitmap, size)
+        .resize({ width: 16, height: 16 });
+}
+
+function updateTrayIcon(enabled: boolean) {
+    if (!tray) {
+        return;
+    }
+
+    const iconPath = app.isPackaged
+        ? path.join(projectRoot, "build", "icon.ico")
+        : path.resolve(__dirname, "..", "build", "icon.ico");
+    tray.setImage(createTrayIcon(iconPath, enabled));
+    tray.setToolTip(enabled ? "koolikell – automaatne helistamine sees" : "koolikell – automaatne helistamine väljas");
 }
 
 
@@ -749,6 +785,16 @@ app.on(
 );
 
 ipcMain.handle(
+    "automatic-enabled:set",
+    (_event, enabled: boolean) => {
+        if (typeof enabled !== "boolean") {
+            throw new Error("Invalid automatic calling state");
+        }
+        updateTrayIcon(enabled);
+    }
+);
+
+ipcMain.handle(
     "sounds-folder:open",
     async () => {
         const soundsPath = path.join(
@@ -773,7 +819,54 @@ ipcMain.handle(
 
 ipcMain.handle(
     "time:ntp",
-    () => queryNtpServer("ntp1.eenet.ee")
+    (_event, server?: string) => queryNtpServer(
+        typeof server === "string" && /^[a-zA-Z0-9.-]+$/.test(server)
+            ? server
+            : "ntp1.eenet.ee"
+    )
+);
+
+ipcMain.handle(
+    "time:sync-system",
+    async (_event, server?: string) => {
+        const ntpServer =
+            typeof server === "string" && /^[a-zA-Z0-9.-]+$/.test(server)
+                ? server
+                : "ntp1.eenet.ee";
+        const result = await queryNtpServer(ntpServer);
+        const script = `$date = [DateTimeOffset]::FromUnixTimeMilliseconds(${Math.round(result.targetTimeMs)}).LocalDateTime; Set-Date -Date $date`;
+        const encodedScript = Buffer.from(script, "utf16le").toString("base64");
+
+        try {
+            await execFileAsync("powershell.exe", [
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                `Start-Process -FilePath powershell.exe -Verb RunAs -Wait -ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','${encodedScript}'`,
+            ]);
+        } catch (error) {
+            throw new Error(
+                "Windows ei lubanud aega muuta. Kinnita administraatori õigused.",
+                { cause: error }
+            );
+        }
+
+        return {
+            ...result,
+            offsetMs: 0,
+            synced: true,
+        };
+    }
+);
+
+ipcMain.handle(
+    "browser:open",
+    async (_event, url: string) => {
+        if (!/^https?:\/\/[a-zA-Z0-9.-]+(?::\d+)?(?:\/.*)?$/.test(url)) {
+            throw new Error("Invalid external URL");
+        }
+        await shell.openExternal(url);
+    }
 );
 
 ipcMain.handle(

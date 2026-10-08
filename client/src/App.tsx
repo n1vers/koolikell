@@ -20,6 +20,7 @@ import {
     stopBellScheduler,
 } from "./services/bellScheduler";
 import { installRuntimeLogging, writeAppLog } from "./services/logService";
+import { playBell } from "./services/bellAudio";
 
 import {
     getProfiles,
@@ -38,7 +39,11 @@ import {
     getSyncedSettings,
     updateSyncedSettings,
     updatePins,
+    disablePins,
     verifyPin,
+    getPinStatus,
+    getNtpServer,
+    setNtpServer,
     type PinRole,
 } from "./api/api";
 import { API_URL } from "./api/apiBase";
@@ -90,6 +95,7 @@ export default function App() {
     const [currentMasterPin, setCurrentMasterPin] = useState("");
     const [nextMasterPin, setNextMasterPin] = useState("");
     const [playNowPin, setPlayNowPin] = useState("");
+    const [pinsConfigured, setPinsConfigured] = useState<boolean | null>(null);
 
 
     // =========================================
@@ -141,6 +147,8 @@ export default function App() {
 
     const [error, setError] =
         useState("");
+    const [notice, setNotice] =
+        useState("");
     const refreshInFlight = useRef(false);
 
     const [automaticEnabled, setAutomaticEnabled] =
@@ -167,6 +175,7 @@ export default function App() {
         });
     const [connectionInfo, setConnectionInfo] =
         useState<ConnectionInfo | null>(null);
+    const [ntpServer, setNtpServerValue] = useState("ntp1.eenet.ee");
 
 
     // =========================================
@@ -227,10 +236,11 @@ export default function App() {
     useEffect(() => {
         const canViewCurrentPage =
             currentPage === "dashboard" ||
+            pinsConfigured === false ||
             (accessRole === "master") ||
             (accessRole === "playnow" && currentPage === "playnow");
 
-        if (accessRole === "playnow" && currentPage !== "playnow") {
+        if (pinsConfigured !== false && accessRole === "playnow" && currentPage !== "playnow") {
             setCurrentPage("playnow");
             setSelectedProfile(null);
             return;
@@ -240,7 +250,7 @@ export default function App() {
             setCurrentPage("dashboard");
             setSelectedProfile(null);
         }
-    }, [accessRole, currentPage]);
+    }, [accessRole, currentPage, pinsConfigured]);
 
     useEffect(() => {
         if (accessRole === null) {
@@ -250,8 +260,20 @@ export default function App() {
         }
     }, [accessRole]);
 
+    useEffect(() => {
+        if (!notice) {
+            return;
+        }
+
+        const timer = window.setTimeout(() => {
+            setNotice("");
+        }, 3000);
+
+        return () => window.clearTimeout(timer);
+    }, [notice]);
+
     async function handleToggleAutomatic() {
-        if (accessRole !== "master") {
+        if (pinsConfigured !== false && accessRole !== "master") {
             return;
         }
 
@@ -259,13 +281,16 @@ export default function App() {
         try {
             const saved = await updateAutomaticEnabled(next);
             setAutomaticEnabled(saved);
+            void window.electronAPI?.setAutomaticEnabled(saved).catch((trayError) => {
+                writeAppLog("warn", "Tray icon update failed", trayError);
+            });
             localStorage.setItem(
                 "schoolbell-automatic-enabled",
                 String(saved)
             );
         } catch (toggleError) {
             writeAppLog("error", "Automatic calling setting update failed", toggleError);
-            setError("Automaatsete kГµnede seadistuse muutmine ebaГµnnestus");
+            setError("Automaatsete kõnede seadistuse muutmine ebaõnnestus");
         }
     }
 
@@ -280,7 +305,18 @@ export default function App() {
             localStorage.setItem("schoolbell-pre-bell-minutes", String(saved));
         } catch (saveError) {
             writeAppLog("error", "Pre-bell setting update failed", saveError);
-            setError("Predzvoni seadistuse salvestamine ebaГµnnestus");
+            setError("Eelhelina seadistuse salvestamine ebaõnnestus");
+        }
+    }
+
+    async function handleNtpServerChange(value: string) {
+        const server = value.trim();
+        setNtpServerValue(server);
+        try {
+            setNtpServerValue(await setNtpServer(server));
+            setNotice("NTP-server salvestatud");
+        } catch (saveError) {
+            setError(saveError instanceof Error ? saveError.message : "NTP-serveri salvestamine ebaõnnestus");
         }
     }
 
@@ -288,7 +324,7 @@ export default function App() {
         if (accessRole === "playnow") {
             return;
         }
-        if (page === "dashboard" || accessRole === "master") {
+        if (page === "dashboard" || accessRole === "master" || pinsConfigured === false) {
             setCurrentPage(page);
             return;
         }
@@ -296,6 +332,16 @@ export default function App() {
         setPendingPage(page);
         setPinValue("");
         setPinError("");
+    }
+
+    function openLogs() {
+        setCurrentPage("settings");
+        window.setTimeout(() => {
+            document.getElementById("app-logs")?.scrollIntoView({
+                behavior: "smooth",
+                block: "start",
+            });
+        }, 0);
     }
 
     function handleLogout() {
@@ -323,7 +369,7 @@ export default function App() {
             setPinValue("");
         } catch (pinErrorValue) {
             writeAppLog("error", "PIN verification failed", pinErrorValue);
-            setPinError("PIN-i kontroll ebaГµnnestus");
+            setPinError("PIN-i kontroll ebaõnnestus");
         }
     }
 
@@ -331,12 +377,26 @@ export default function App() {
         event.preventDefault();
         try {
             await updatePins(currentMasterPin, nextMasterPin, playNowPin);
+            setPinsConfigured(true);
+            setAccessRole("master");
             setCurrentMasterPin("");
             setNextMasterPin("");
             setPlayNowPin("");
-            setError("PIN-id salvestatud");
+            setNotice("PIN-id salvestatud");
         } catch (saveError) {
-            setError(saveError instanceof Error ? saveError.message : "PIN-ide salvestamine ebaГµnnestus");
+            setError(saveError instanceof Error ? saveError.message : "PIN-ide salvestamine ebaõnnestus");
+        }
+
+    }
+
+    async function turnOffPins() {
+        try {
+            await disablePins();
+            setPinsConfigured(false);
+            setAccessRole(null);
+            setNotice("PIN-id välja lülitatud");
+        } catch (disableError) {
+            setError(disableError instanceof Error ? disableError.message : "PIN-ide väljalülitamine ebaõnnestus");
         }
     }
 
@@ -358,9 +418,11 @@ export default function App() {
         const loadSyncedSettings = async () => {
             try {
                 const settings = await getSyncedSettings();
+                const savedNtpServer = await getNtpServer();
                 if (disposed) {
                     return;
                 }
+                setNtpServerValue(savedNtpServer);
                 setPreBellMinutes(settings.preBellMinutes);
                 localStorage.setItem("schoolbell-pre-bell-minutes", String(settings.preBellMinutes));
                 setWindowsSettings(settings.windows);
@@ -516,7 +578,7 @@ export default function App() {
         }
 
         const unsubscribe = window.electronAPI.onBell((event) => {
-            console.log("рџ”” Bell received:", event);
+            console.log("🔔 Bell received:", event);
 
             if (!event.soundUrl) {
                 console.warn("No sound assigned to this schedule");
@@ -524,14 +586,9 @@ export default function App() {
                 return;
             }
 
-            const audio = new Audio(event.soundUrl);
-
-            audio.volume = 1;
-
-            audio
-                .play()
+            playBell(event.soundUrl)
                 .then(() => {
-                    console.log(`рџ”Љ Playing ${event.type}`);
+                    console.log(`🔊 Playing ${event.type}`);
                 })
                 .catch((error) => {
                     console.error("Failed to play sound:", error);
@@ -566,10 +623,15 @@ export default function App() {
                 profilesData
             );
 
-            const [savedAssignments, serverAutomaticEnabled] = await Promise.all([
+            const [savedAssignments, serverAutomaticEnabled, serverPinsConfigured] = await Promise.all([
                 getProfileAssignments(),
                 getAutomaticEnabled(),
+                getPinStatus(),
             ]);
+            setPinsConfigured(serverPinsConfigured);
+            if (!serverPinsConfigured) {
+                setAccessRole(null);
+            }
             const localProfileByDay = JSON.parse(
                 localStorage.getItem("schoolbell-profile-by-day") ?? "{}"
             ) as Record<string, number | null>;
@@ -585,28 +647,59 @@ export default function App() {
                     profileByDay: localProfileByDay,
                     profileByDate: localProfileByDate,
                 };
+            const existingProfileIds = new Set(
+                profilesData.map((profile) => profile.id)
+            );
+            const cleanedProfileByDay = Object.fromEntries(
+                Object.entries(assignments.profileByDay).map(([day, profileId]) => [
+                    day,
+                    profileId !== null && existingProfileIds.has(profileId)
+                        ? profileId
+                        : null,
+                ])
+            );
+            const cleanedProfileByDate = Object.fromEntries(
+                Object.entries(assignments.profileByDate).filter(
+                    ([, profileId]) =>
+                        profileId !== null && existingProfileIds.has(profileId)
+                )
+            );
+            const cleanedAssignments = {
+                profileByDay: cleanedProfileByDay,
+                profileByDate: cleanedProfileByDate,
+            };
+            const assignmentsChanged =
+                JSON.stringify(cleanedAssignments) !== JSON.stringify(assignments);
             if (!hasServerAssignments && (
                 Object.keys(localProfileByDay).length > 0 ||
                 Object.keys(localProfileByDate).length > 0
             )) {
-                void setProfileAssignments(assignments).catch((migrationError) => {
+                void setProfileAssignments(cleanedAssignments).catch((migrationError) => {
                     writeAppLog("error", "Profile assignment migration failed", migrationError);
                 });
             }
+            if (assignmentsChanged) {
+                void setProfileAssignments(cleanedAssignments).catch((cleanupError) => {
+                    writeAppLog("error", "Invalid profile assignment cleanup failed", cleanupError);
+                });
+            }
             setAutomaticEnabled(serverAutomaticEnabled);
+            void window.electronAPI?.setAutomaticEnabled(serverAutomaticEnabled).catch((trayError) => {
+                writeAppLog("warn", "Tray icon update failed", trayError);
+            });
             localStorage.setItem(
                 "schoolbell-automatic-enabled",
                 String(serverAutomaticEnabled)
             );
-            setProfileByDay(assignments.profileByDay);
-            setProfileByDate(assignments.profileByDate);
+            setProfileByDay(cleanedAssignments.profileByDay);
+            setProfileByDate(cleanedAssignments.profileByDate);
             localStorage.setItem(
                 "schoolbell-profile-by-day",
-                JSON.stringify(assignments.profileByDay)
+                JSON.stringify(cleanedAssignments.profileByDay)
             );
             localStorage.setItem(
                 "schoolbell-profile-by-date",
-                JSON.stringify(assignments.profileByDate)
+                JSON.stringify(cleanedAssignments.profileByDate)
             );
 
 
@@ -674,12 +767,12 @@ export default function App() {
 
             if (initialLoad) {
                 setError(
-                    "Andmete laadimine ebaГµnnestus"
+                    "Andmete laadimine ebaõnnestus"
                 );
             }
             writeAppLog(
                 "error",
-                "Andmete laadimine ebaГµnnestus",
+                "Andmete laadimine ebaõnnestus",
                 error
             );
         } finally {
@@ -761,12 +854,62 @@ export default function App() {
                         [],
                 })
             );
+
+            if (
+                profiles.length === 0 &&
+                Object.values(profileByDay).every(
+                    (profileId) => profileId === null || profileId === undefined
+                )
+            ) {
+                const weeklyAssignments: Record<number, number> = {};
+                for (let day = 1; day <= 5; day += 1) {
+                    weeklyAssignments[day] = createdProfile.id;
+                }
+                setProfileByDay(weeklyAssignments);
+                await setProfileAssignments({
+                    profileByDay: weeklyAssignments,
+                    profileByDate,
+                });
+                localStorage.setItem(
+                    "schoolbell-profile-by-day",
+                    JSON.stringify(weeklyAssignments)
+                );
+            }
         } catch (error) {
             console.error(
                 "Failed to create profile:",
                 error
             );
 
+            throw error;
+        }
+
+    }
+
+    async function handleCopyProfile(profile: Profile) {
+        try {
+            const sourceSchedules = schedulesByProfile[profile.id] ?? [];
+            const copiedProfile = await createProfile(`${profile.name} (koopia)`);
+            const copiedSchedules = await Promise.all(
+                sourceSchedules.map((schedule) =>
+                    createSchedule(
+                        copiedProfile.id,
+                        schedule.dayOfWeek,
+                        schedule.time,
+                        schedule.type,
+                        schedule.preBellEnabled,
+                        schedule.soundId,
+                        schedule.preBellSoundId
+                    )
+                )
+            );
+            setProfiles((current) => [...current, copiedProfile]);
+            setSchedulesByProfile((current) => ({
+                ...current,
+                [copiedProfile.id]: copiedSchedules,
+            }));
+        } catch (error) {
+            writeAppLog("error", "Profile copy failed", error);
             throw error;
         }
     }
@@ -817,6 +960,32 @@ export default function App() {
 
                     return copy;
                 }
+            );
+
+            const nextProfileByDay = Object.fromEntries(
+                Object.entries(profileByDay).map(([day, profileId]) => [
+                    day,
+                    profileId === profile.id ? null : profileId,
+                ])
+            );
+            const nextProfileByDate = Object.fromEntries(
+                Object.entries(profileByDate).filter(
+                    ([, profileId]) => profileId !== profile.id
+                )
+            );
+            setProfileByDay(nextProfileByDay);
+            setProfileByDate(nextProfileByDate);
+            await setProfileAssignments({
+                profileByDay: nextProfileByDay,
+                profileByDate: nextProfileByDate,
+            });
+            localStorage.setItem(
+                "schoolbell-profile-by-day",
+                JSON.stringify(nextProfileByDay)
+            );
+            localStorage.setItem(
+                "schoolbell-profile-by-date",
+                JSON.stringify(nextProfileByDate)
             );
 
 
@@ -879,7 +1048,7 @@ export default function App() {
     function handleOpenProfile(
         profile: Profile
     ) {
-        if (accessRole !== "master") {
+        if (pinsConfigured !== false && accessRole !== "master") {
             setPinPrompt("master");
             setPendingPage("profiles");
             setPinValue("");
@@ -1248,6 +1417,15 @@ export default function App() {
                 bg-[#f5f7fb]
             "
         >
+            {notice && (
+                <div
+                    role="status"
+                    className="fixed right-[24px] top-[24px] z-[120] rounded-[10px] bg-[#e9f8ef] px-[16px] py-[12px] text-[14px] font-medium text-[#18794e] shadow-[0_4px_16px_rgba(0,0,0,0.12)]"
+                >
+                    {notice}
+                </div>
+            )}
+
             {/* ================================= */}
             {/* SIDEBAR */}
             {/* ================================= */}
@@ -1258,6 +1436,7 @@ export default function App() {
                 }
                 onNavigate={requestNavigation}
                 accessRole={accessRole}
+                pinsConfigured={pinsConfigured}
                 onLogout={handleLogout}
                 onRequestPin={() => {
                     setPinPrompt("master");
@@ -1297,8 +1476,9 @@ export default function App() {
                     }
 
                     canManage={
-                        accessRole === "master"
+                        pinsConfigured === false || accessRole === "master"
                     }
+                    onOpenLogs={openLogs}
                 />
             )}
 
@@ -1332,6 +1512,10 @@ export default function App() {
 
                     onOpenProfile={
                         handleOpenProfile
+                    }
+
+                    onCopyProfile={
+                        handleCopyProfile
                     }
 
                     profileByDay={
@@ -1395,6 +1579,13 @@ export default function App() {
                         onDeleteSchedule={
                             handleDeleteSchedule
                         }
+
+                        onRenameProfile={
+                            (name) =>
+                                selectedProfile
+                                    ? handleRenameProfile(selectedProfile, name)
+                                    : Promise.resolve()
+                        }
                     />
                 )}
 
@@ -1421,10 +1612,13 @@ export default function App() {
                     preBellMinutes={preBellMinutes}
                     windowsSettings={windowsSettings}
                     connectionInfo={connectionInfo}
+                    ntpServer={ntpServer}
                     currentMasterPin={currentMasterPin}
                     nextMasterPin={nextMasterPin}
                     playNowPin={playNowPin}
+                    pinsConfigured={pinsConfigured}
                     onPreBellMinutesChange={handlePreBellMinutesChange}
+                    onNtpServerChange={handleNtpServerChange}
                     onWindowsSettingChange={updateWindowsSetting}
                     onPinChange={(key, value) => {
                         if (key === "currentMaster") setCurrentMasterPin(value);
@@ -1432,6 +1626,7 @@ export default function App() {
                         if (key === "playNow") setPlayNowPin(value);
                     }}
                     onSavePins={(event) => void savePinSettings(event)}
+                    onDisablePins={() => void turnOffPins()}
                 />
             )}
 
@@ -1448,7 +1643,7 @@ export default function App() {
                             {pinPrompt === "playnow" ? "PlayNow PIN" : "Meister-PIN"}
                         </h2>
                         <p className="mt-[8px] text-[13px] text-[#647085]">
-                            Sisesta neljakohaline PIN juurdepГ¤Г¤su avamiseks.
+                            Sisesta neljakohaline PIN juurdepääsu avamiseks.
                         </p>
                         <input
                             autoFocus
@@ -1461,7 +1656,7 @@ export default function App() {
                         />
                         {pinError && <p className="mt-[8px] text-[12px] text-[#b42318]">{pinError}</p>}
                         <div className="mt-[18px] flex justify-end gap-[8px]">
-                            <button type="button" onClick={() => setPinPrompt(null)} className="rounded-[8px] border border-[#d9dee8] px-[14px] py-[9px] text-[13px] text-[#647085]">TГјhista</button>
+                            <button type="button" onClick={() => setPinPrompt(null)} className="rounded-[8px] border border-[#d9dee8] px-[14px] py-[9px] text-[13px] text-[#647085]">Tühista</button>
                             <button type="submit" className="rounded-[8px] bg-[#5798f5] px-[14px] py-[9px] text-[13px] font-medium text-white">Ava</button>
                         </div>
                     </form>

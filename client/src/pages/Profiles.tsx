@@ -9,6 +9,7 @@ interface ProfilesProps {
     onRenameProfile: (profile: Profile, name: string) => Promise<void>;
     onDeleteProfile: (profile: Profile) => void;
     onOpenProfile: (profile: Profile) => void;
+    onCopyProfile: (profile: Profile) => Promise<void>;
     profileByDay: Record<number, number | null>;
     profileByDate: Record<string, number | null>;
     onAssignProfile: (day: number, profileId: number | null) => void;
@@ -109,6 +110,7 @@ export default function Profiles({
     onRenameProfile,
     onDeleteProfile,
     onOpenProfile,
+    onCopyProfile,
     profileByDay,
     onAssignProfile,
     profileByDate,
@@ -295,6 +297,19 @@ export default function Profiles({
                                                             className="h-[40px] w-full border-0 bg-white px-[16px] text-left text-[14px] text-[#1b212d] transition hover:bg-[#f5f7fb]"
                                                         >
                                                             Muuda nime
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            role="menuitem"
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                setMenuId(null);
+                                                                void onCopyProfile(profile);
+                                                            }}
+                                                            className="h-[40px] w-full border-0 bg-white px-[16px] text-left text-[14px] text-[#1b212d] transition hover:bg-[#f5f7fb]"
+                                                        >
+                                                            Kopeeri profiil
                                                         </button>
 
                                                         <button

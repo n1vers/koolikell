@@ -1,6 +1,6 @@
 {
     "name": "koolikell",
-    "version": "1.1.4",
+    "version": "1.1.5",
     "productName": "koolikell",
     "description": "Koolikellade ajakava ja automaatne helistamine Windowsis",
     "main": "dist-electron/main.js",
@@ -37,19 +37,37 @@
             },
             {
                 "from": "server/node_modules",
-                "to": "server/node_modules"
+                "to": "server/node_modules",
+                "filter": [
+                    "**/*",
+                    "!prisma/**",
+                    "!typescript/**",
+                    "!ts-node/**",
+                    "!ts-node-dev/**",
+                    "!tsx/**",
+                    "!@types/**",
+                    "!@esbuild/**",
+                    "!@prisma/studio-core/**",
+                    "!@prisma/dev/**",
+                    "!@prisma/query-plan-executor/**",
+                    "!@prisma/fetch-engine/**",
+                    "!**/*.map",
+                    "!**/*.md",
+                    "!**/test/**",
+                    "!**/tests/**",
+                    "!**/__tests__/**"
+                    ,"!**/*.pdb"
+                    ,"!**/*.iobj"
+                    ,"!**/*.ipdb"
+                    ,"!**/better-sqlite3/build/obj/**"
+                    ,"!**/better-sqlite3/deps/**"
+                    ,"!**/better-sqlite3/prebuilds/linux-*/**"
+                    ,"!**/better-sqlite3/prebuilds/darwin-*/**"
+                ]
             },
             {
                 "from": "server/prisma",
                 "to": "server/prisma"
-            },
-            {
-                "from": "server/sounds",
-                "to": "server/sounds"
-            },
-            {
-                "from": "server/playnow",
-                "to": "server/playnow"
             },
             {
                 "from": "build/icon.ico",

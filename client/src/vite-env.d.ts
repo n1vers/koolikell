@@ -4,17 +4,31 @@ interface Window {
     electronAPI?: {
         openPlayNowFolder: () => Promise<string>;
 
-        getNtpTime: () => Promise<{
+        getNtpTime: (server?: string) => Promise<{
             server: string;
             offsetMs: number;
             checkedAt: string;
+            targetTimeMs: number;
         }>;
+        syncSystemTime: (server?: string) => Promise<{
+            server: string;
+            offsetMs: number;
+            checkedAt: string;
+            targetTimeMs: number;
+            synced: boolean;
+        }>;
+        openExternal: (url: string) => Promise<void>;
 
         getConnectionInfo: () => Promise<{
             address: string | null;
             port: number;
             interfaceName: string | null;
             connectionType: "ethernet" | "wifi" | "other" | "none";
+            addresses: Array<{
+                address: string;
+                interfaceName: string;
+                connectionType: "ethernet" | "wifi" | "other";
+            }>;
         }>;
 
         openSoundsFolder: () => Promise<string>;
@@ -31,6 +45,7 @@ interface Window {
             openAtLogin: boolean;
             openAsHidden: boolean;
         }>;
+        setAutomaticEnabled: (enabled: boolean) => Promise<void>;
         writeLogFile: (entry: {
             timestamp: string;
             level: "info" | "warn" | "error";

@@ -1,10 +1,34 @@
 import {
     getSavedAudioDevice,
     getVolume,
+    onAudioDeviceChange,
 } from "./audioService";
 
 let currentAudio:
     HTMLAudioElement | null = null;
+
+onAudioDeviceChange(() => {
+    if (currentAudio) {
+        void setAudioOutputDevice(currentAudio).catch((error) => {
+            console.error("Failed to switch active audio device:", error);
+        });
+    }
+});
+
+export async function setAudioOutputDevice(
+    audio: HTMLAudioElement
+): Promise<void> {
+    const setSinkId = (
+        audio as HTMLAudioElement & {
+            setSinkId?: (id: string) => Promise<void>;
+        }
+    ).setSinkId;
+    if (typeof setSinkId !== "function") {
+        return;
+    }
+
+    await setSinkId.call(audio, getSavedAudioDevice());
+}
 
 export async function playBell(
     url: string
@@ -24,44 +48,14 @@ export async function playBell(
     audio.volume =
         getVolume() / 100;
 
-    const deviceId =
-        getSavedAudioDevice();
-
     /*
      * Electron / Chromium поддерживает
      * выбор конкретного output device.
      */
-    if (
-        "setSinkId" in audio &&
-        typeof (
-            audio as HTMLAudioElement & {
-                setSinkId?: (
-                    id: string
-                ) => Promise<void>;
-            }
-        ).setSinkId === "function"
-    ) {
-
-        try {
-
-            await (
-                audio as HTMLAudioElement & {
-                    setSinkId: (
-                        id: string
-                    ) => Promise<void>;
-                }
-            ).setSinkId(
-                deviceId
-            );
-
-        } catch (error) {
-
-            console.error(
-                "Failed to select audio device:",
-                error
-            );
-
-        }
+    try {
+        await setAudioOutputDevice(audio);
+    } catch (error) {
+        console.error("Failed to select audio device:", error);
     }
 
     audio.addEventListener(

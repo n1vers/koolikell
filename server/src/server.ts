@@ -45,12 +45,21 @@ const FRONTEND_PORT = 5173;
 const FRONTEND_HOST = process.env.FRONTEND_HOST;
 const clientDistPath = process.env.CLIENT_DIST_PATH;
 const serverLogPath = path.join(process.cwd(), "koolikell-server.log");
+const recentLogEntries = new Map<string, number>();
+const DUPLICATE_LOG_WINDOW_MS = 30_000;
 
 async function writeServerLog(
     level: "info" | "warn" | "error",
     message: string,
     details?: unknown
 ) {
+    const signature = `${level}:${message}`;
+    const previousTimestamp = recentLogEntries.get(signature);
+    if (previousTimestamp !== undefined && Date.now() - previousTimestamp < DUPLICATE_LOG_WINDOW_MS) {
+        return;
+    }
+    recentLogEntries.set(signature, Date.now());
+
     const safeDetails =
         details instanceof Error
             ? details.stack ?? details.message
@@ -106,6 +115,7 @@ function getServerConnectionInfo() {
     const candidates: Array<{
         address: string;
         interfaceName: string;
+        connectionType: "ethernet" | "wifi" | "other";
         priority: number;
     }> = [];
 
@@ -127,28 +137,28 @@ function getServerConnectionInfo() {
             candidates.push({
                 address: entry.address,
                 interfaceName,
+                connectionType: isEthernet ? "ethernet" : isWifi ? "wifi" : "other",
                 priority: isEthernet ? 0 : isWifi ? 1 : 2,
             });
 
         }
     }
 
-    const selected = candidates.sort(
+    const sortedCandidates = candidates.sort(
         (first, second) => first.priority - second.priority
-    )[0];
+    );
+    const selected = sortedCandidates[0];
 
     return {
         address: selected?.address ?? null,
         port: FRONTEND_PORT,
         interfaceName: selected?.interfaceName ?? null,
-        connectionType:
-            selected?.priority === 0
-                ? "ethernet"
-                : selected?.priority === 1
-                    ? "wifi"
-                    : selected
-                        ? "other"
-                        : "none",
+        connectionType: selected?.connectionType ?? "none",
+        addresses: sortedCandidates.map(({ address, interfaceName, connectionType }) => ({
+            address,
+            interfaceName,
+            connectionType,
+        })),
     };
 }
 
@@ -233,13 +243,29 @@ function initializeDatabase() {
         VALUES ('volume', '80');
         INSERT OR IGNORE INTO "AppSetting" ("key", "value")
         VALUES ('windowsSettings', '{"openAtLogin":false,"openAsHidden":false}');
-
         INSERT OR IGNORE INTO "AppSetting" ("key", "value")
-        VALUES ('masterPin', '${hashPin("1234")}');
+        VALUES ('ntpServer', 'ntp1.eenet.ee');
 
-        INSERT OR IGNORE INTO "AppSetting" ("key", "value")
-        VALUES ('playNowPin', '${hashPin("5678")}');
     `);
+
+    // Older versions created insecure default PINs. Remove those defaults
+    // once so existing installations also start in the unconfigured state.
+    const migration = database
+        .prepare('SELECT "value" FROM "AppSetting" WHERE "key" = ?')
+        .get("pinDefaultsRemoved") as { value?: string } | undefined;
+    if (!migration) {
+        database
+            .prepare('DELETE FROM "AppSetting" WHERE "key" = ? AND "value" = ?')
+            .run("masterPin", hashPin("1234"));
+        database
+            .prepare('DELETE FROM "AppSetting" WHERE "key" = ? AND "value" = ?')
+            .run("playNowPin", hashPin("5678"));
+        database
+            .prepare(
+                'INSERT INTO "AppSetting" ("key", "value") VALUES (?, ?)'
+            )
+            .run("pinDefaultsRemoved", "true");
+    }
 
     database.close();
 }
@@ -278,7 +304,15 @@ app.use(
 );
 
 app.get("/api/settings/pins", (_req, res) => {
-    res.json({ configured: true });
+    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const rows = database
+        .prepare('SELECT "key" FROM "AppSetting" WHERE "key" IN (?, ?)')
+        .all("masterPin", "playNowPin") as Array<{ key: string }>;
+    database.close();
+    res.json({
+        configured: rows.some((row) => row.key === "masterPin") &&
+            rows.some((row) => row.key === "playNowPin"),
+    });
 });
 
 app.post("/api/logs", (req, res) => {
@@ -303,8 +337,8 @@ app.post("/api/settings/pins/verify", (req, res) => {
         return res.status(400).json({ error: "PIN must contain four digits" });
     }
 
-    const master = hashPin(pin) === getPin("masterPin", "1234");
-    const playNow = hashPin(pin) === getPin("playNowPin", "5678");
+    const master = hashPin(pin) === getPin("masterPin", "");
+    const playNow = hashPin(pin) === getPin("playNowPin", "");
     void writeServerLog(
         master || playNow ? "info" : "warn",
         "PIN verification attempt",
@@ -318,8 +352,9 @@ app.put("/api/settings/pins", (req, res) => {
     const nextMasterPin = typeof req.body?.nextMasterPin === "string" ? req.body.nextMasterPin : "";
     const nextPlayNowPin = typeof req.body?.nextPlayNowPin === "string" ? req.body.nextPlayNowPin : "";
 
+    const currentMasterPin = getPin("masterPin", "");
     if (
-        hashPin(masterPin) !== getPin("masterPin", "1234") ||
+        (currentMasterPin !== "" && hashPin(masterPin) !== currentMasterPin) ||
         !/^\d{4}$/.test(nextMasterPin) ||
         !/^\d{4}$/.test(nextPlayNowPin)
     ) {
@@ -333,6 +368,16 @@ app.put("/api/settings/pins", (req, res) => {
         playNowChanged: true,
     });
     res.json({ saved: true });
+});
+
+app.delete("/api/settings/pins", (_req, res) => {
+    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    database
+        .prepare('DELETE FROM "AppSetting" WHERE "key" IN (?, ?)')
+        .run("masterPin", "playNowPin");
+    database.close();
+    void writeServerLog("info", "PIN settings disabled");
+    res.json({ configured: false });
 });
 
 
@@ -377,6 +422,31 @@ app.get("/api/connection-info", (_req, res) => {
 
 app.get("/api/settings/automatic", (_req, res) => {
     res.json({ enabled: getAutomaticEnabled() });
+});
+
+app.get("/api/settings/ntp", (_req, res) => {
+    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const row = database
+        .prepare('SELECT "value" FROM "AppSetting" WHERE "key" = ?')
+        .get("ntpServer") as { value?: string } | undefined;
+    database.close();
+    res.json({ server: row?.value?.trim() || "ntp1.eenet.ee" });
+});
+
+app.put("/api/settings/ntp", (req, res) => {
+    const server = typeof req.body?.server === "string" ? req.body.server.trim() : "";
+    if (!/^[a-zA-Z0-9.-]+$/.test(server) || server.length > 253) {
+        return res.status(400).json({ error: "Invalid NTP server" });
+    }
+    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    database
+        .prepare(
+            'INSERT INTO "AppSetting" ("key", "value") VALUES (?, ?) ON CONFLICT("key") DO UPDATE SET "value" = excluded."value"'
+        )
+        .run("ntpServer", server);
+    database.close();
+    void writeServerLog("info", "NTP server updated", { server });
+    res.json({ server });
 });
 
 app.put("/api/settings/automatic", (req, res) => {
@@ -478,8 +548,6 @@ app.get("/api/settings/profile-assignments", (_req, res) => {
     const rows = database
         .prepare('SELECT "key", "value" FROM "AppSetting" WHERE "key" IN (?, ?)')
         .all("profileByDay", "profileByDate") as Array<{ key: string; value: string }>;
-    database.close();
-
     const values = Object.fromEntries(rows.map((row) => [row.key, row.value]));
     let profileByDay: Record<string, number | null> = {};
     let profileByDate: Record<string, number | null> = {};
@@ -495,6 +563,31 @@ app.get("/api/settings/profile-assignments", (_req, res) => {
         console.error("Failed to parse profile assignments:", error);
         return res.status(500).json({ error: "Invalid profile assignments" });
     }
+
+    const existingProfileIds = new Set(
+        database
+            .prepare('SELECT "id" FROM "Profile"')
+            .all()
+            .map((row) => (row as { id: number }).id)
+    );
+    const cleanAssignments = (
+        source: Record<string, number | null>,
+        removeKeys: boolean
+    ) => Object.fromEntries(
+        Object.entries(source)
+            .filter(([, profileId]) =>
+                !removeKeys || profileId === null || existingProfileIds.has(profileId)
+            )
+            .map(([key, profileId]) => [
+                key,
+                profileId !== null && existingProfileIds.has(profileId)
+                    ? profileId
+                    : null,
+            ])
+    );
+    profileByDay = cleanAssignments(profileByDay, false);
+    profileByDate = cleanAssignments(profileByDate, true);
+    database.close();
 
     res.json({ profileByDay, profileByDate });
 });
@@ -786,6 +879,44 @@ app.delete(
             await deleteProfile(
                 id
             );
+
+            const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+            const assignmentRows = database
+                .prepare('SELECT "key", "value" FROM "AppSetting" WHERE "key" IN (?, ?)')
+                .all("profileByDay", "profileByDate") as Array<{ key: string; value: string }>;
+            const assignments = Object.fromEntries(
+                assignmentRows.map((row) => [row.key, row.value])
+            );
+            const removeDeletedProfile = (value: string | undefined) => {
+                if (!value) {
+                    return {};
+                }
+                try {
+                    const parsed = JSON.parse(value) as Record<string, number | null>;
+                    return Object.fromEntries(
+                        Object.entries(parsed).map(([key, profileId]) => [
+                            key,
+                            profileId === id ? null : profileId,
+                        ])
+                    );
+                } catch (assignmentError) {
+                    console.error("Failed to clean profile assignments:", assignmentError);
+                    return {};
+                }
+            };
+            const saveAssignment = database.prepare(
+                'INSERT INTO "AppSetting" ("key", "value") VALUES (?, ?) ' +
+                'ON CONFLICT("key") DO UPDATE SET "value" = excluded."value"'
+            );
+            saveAssignment.run(
+                "profileByDay",
+                JSON.stringify(removeDeletedProfile(assignments.profileByDay))
+            );
+            saveAssignment.run(
+                "profileByDate",
+                JSON.stringify(removeDeletedProfile(assignments.profileByDate))
+            );
+            database.close();
 
             res.json({
                 message:

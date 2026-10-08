@@ -9,11 +9,13 @@ const fs_1 = __importDefault(require("fs"));
 const os_1 = __importDefault(require("os"));
 const dgram_1 = __importDefault(require("dgram"));
 const child_process_1 = require("child_process");
+const util_1 = require("util");
 let mainWindow = null;
 let tray = null;
 let isQuitting = false;
 let serverProcess = null;
 const FRONTEND_PORT = 5173;
+const execFileAsync = (0, util_1.promisify)(child_process_1.execFile);
 function writeMainLog(level, message, details) {
     try {
         const logPath = path_1.default.join(electron_1.app.getPath("userData"), "koolikell.log");
@@ -45,7 +47,8 @@ function getConnectionInfo() {
             });
         }
     }
-    const selected = candidates.sort((a, b) => a.priority - b.priority)[0];
+    const sortedCandidates = candidates.sort((a, b) => a.priority - b.priority);
+    const selected = sortedCandidates[0];
     const connectionType = selected === undefined
         ? "none"
         : selected.priority === 0
@@ -58,6 +61,11 @@ function getConnectionInfo() {
         port: FRONTEND_PORT,
         interfaceName: selected?.name ?? null,
         connectionType,
+        addresses: sortedCandidates.map(({ address, name, priority }) => ({
+            address,
+            interfaceName: name,
+            connectionType: priority === 0 ? "ethernet" : priority === 1 ? "wifi" : "other",
+        })),
     };
 }
 function queryNtpServer(server) {
@@ -96,6 +104,7 @@ function queryNtpServer(server) {
                 server,
                 offsetMs,
                 checkedAt: new Date().toISOString(),
+                targetTimeMs: Date.now() + offsetMs,
             });
         });
         socket.send(packet, 123, server, (error) => {
@@ -132,19 +141,8 @@ const dataSoundsPath = path_1.default.join(dataRoot, "sounds");
 const dataPlayNowPath = path_1.default.join(dataRoot, "playnow");
 function prepareDataDirectory() {
     fs_1.default.mkdirSync(dataRoot, { recursive: true });
-    const bundledServerRoot = path_1.default.join(projectRoot, "server");
-    for (const directory of ["sounds", "playnow"]) {
-        const target = path_1.default.join(dataRoot, directory);
-        const source = path_1.default.join(bundledServerRoot, directory);
-        fs_1.default.mkdirSync(target, { recursive: true });
-        if (fs_1.default.existsSync(source)) {
-            fs_1.default.cpSync(source, target, {
-                recursive: true,
-                force: false,
-                errorOnExist: false,
-            });
-        }
-    }
+    fs_1.default.mkdirSync(dataSoundsPath, { recursive: true });
+    fs_1.default.mkdirSync(dataPlayNowPath, { recursive: true });
 }
 // ========================================
 // WAIT FOR SERVER
@@ -252,7 +250,9 @@ electron_1.ipcMain.handle("windows-settings:get", () => {
 });
 electron_1.ipcMain.handle("windows-settings:set", (_event, settings) => {
     electron_1.app.setLoginItemSettings({
+        path: process.execPath,
         openAtLogin: settings.openAtLogin,
+        name: electron_1.app.getName(),
         args: settings.openAsHidden
             ? ["--hidden"]
             : [],
@@ -313,9 +313,7 @@ function createTray() {
     const iconPath = electron_1.app.isPackaged
         ? path_1.default.join(projectRoot, "build", "icon.ico")
         : path_1.default.resolve(__dirname, "..", "build", "icon.ico");
-    const icon = electron_1.nativeImage
-        .createFromPath(iconPath)
-        .resize({ width: 16, height: 16 });
+    const icon = createTrayIcon(iconPath, true);
     if (icon.isEmpty()) {
         throw new Error(`Failed to load tray icon from ${iconPath}`);
     }
@@ -335,6 +333,38 @@ function createTray() {
         },
     ]));
     tray.on("double-click", () => mainWindow?.show());
+}
+function createTrayIcon(iconPath, enabled) {
+    const source = electron_1.nativeImage.createFromPath(iconPath);
+    if (source.isEmpty()) {
+        throw new Error(`Failed to load tray icon from ${iconPath}`);
+    }
+    const size = source.getSize();
+    const bitmap = source.toBitmap();
+    if (!enabled) {
+        for (let index = 0; index < bitmap.length; index += 4) {
+            const blue = bitmap[index];
+            const green = bitmap[index + 1];
+            const red = bitmap[index + 2];
+            const luminance = Math.round(red * 0.299 + green * 0.587 + blue * 0.114);
+            bitmap[index] = luminance;
+            bitmap[index + 1] = luminance;
+            bitmap[index + 2] = luminance;
+        }
+    }
+    return electron_1.nativeImage
+        .createFromBitmap(bitmap, size)
+        .resize({ width: 16, height: 16 });
+}
+function updateTrayIcon(enabled) {
+    if (!tray) {
+        return;
+    }
+    const iconPath = electron_1.app.isPackaged
+        ? path_1.default.join(projectRoot, "build", "icon.ico")
+        : path_1.default.resolve(__dirname, "..", "build", "icon.ico");
+    tray.setImage(createTrayIcon(iconPath, enabled));
+    tray.setToolTip(enabled ? "koolikell – automaatne helistamine sees" : "koolikell – automaatne helistamine väljas");
 }
 // ========================================
 // APP READY
@@ -376,6 +406,12 @@ electron_1.app.on("before-quit", () => {
     isQuitting = true;
     stopServer();
 });
+electron_1.ipcMain.handle("automatic-enabled:set", (_event, enabled) => {
+    if (typeof enabled !== "boolean") {
+        throw new Error("Invalid automatic calling state");
+    }
+    updateTrayIcon(enabled);
+});
 electron_1.ipcMain.handle("sounds-folder:open", async () => {
     const soundsPath = path_1.default.join(dataSoundsPath);
     fs_1.default.mkdirSync(soundsPath, {
@@ -387,7 +423,39 @@ electron_1.ipcMain.handle("sounds-folder:open", async () => {
     }
     return soundsPath;
 });
-electron_1.ipcMain.handle("time:ntp", () => queryNtpServer("ntp1.eenet.ee"));
+electron_1.ipcMain.handle("time:ntp", (_event, server) => queryNtpServer(typeof server === "string" && /^[a-zA-Z0-9.-]+$/.test(server)
+    ? server
+    : "ntp1.eenet.ee"));
+electron_1.ipcMain.handle("time:sync-system", async (_event, server) => {
+    const ntpServer = typeof server === "string" && /^[a-zA-Z0-9.-]+$/.test(server)
+        ? server
+        : "ntp1.eenet.ee";
+    const result = await queryNtpServer(ntpServer);
+    const script = `$date = [DateTimeOffset]::FromUnixTimeMilliseconds(${Math.round(result.targetTimeMs)}).LocalDateTime; Set-Date -Date $date`;
+    const encodedScript = Buffer.from(script, "utf16le").toString("base64");
+    try {
+        await execFileAsync("powershell.exe", [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            `Start-Process -FilePath powershell.exe -Verb RunAs -Wait -ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','${encodedScript}'`,
+        ]);
+    }
+    catch (error) {
+        throw new Error("Windows ei lubanud aega muuta. Kinnita administraatori õigused.", { cause: error });
+    }
+    return {
+        ...result,
+        offsetMs: 0,
+        synced: true,
+    };
+});
+electron_1.ipcMain.handle("browser:open", async (_event, url) => {
+    if (!/^https?:\/\/[a-zA-Z0-9.-]+(?::\d+)?(?:\/.*)?$/.test(url)) {
+        throw new Error("Invalid external URL");
+    }
+    await electron_1.shell.openExternal(url);
+});
 electron_1.ipcMain.handle("playnow-folder:open", async () => {
     const playNowPath = path_1.default.join(dataPlayNowPath);
     fs_1.default.mkdirSync(playNowPath, { recursive: true });

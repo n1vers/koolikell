@@ -8,6 +8,15 @@ const STORAGE_DEVICE =
 
 const STORAGE_VOLUME =
     "schoolbell.audio.volume";
+const AUDIO_DEVICE_CHANGED_EVENT = "schoolbell-audio-device-changed";
+
+export function getSavedAudioDevice(): string {
+    return (
+        localStorage.getItem(
+            STORAGE_DEVICE
+        ) ?? "default"
+    );
+}
 
 export async function getAudioOutputDevices(): Promise<
     AudioOutputDevice[]
@@ -28,14 +37,6 @@ export async function getAudioOutputDevices(): Promise<
         }));
 }
 
-export function getSavedAudioDevice(): string {
-    return (
-        localStorage.getItem(
-            STORAGE_DEVICE
-        ) ?? "default"
-    );
-}
-
 export function saveAudioDevice(
     deviceId: string
 ) {
@@ -43,6 +44,18 @@ export function saveAudioDevice(
         STORAGE_DEVICE,
         deviceId
     );
+    window.dispatchEvent(
+        new CustomEvent(AUDIO_DEVICE_CHANGED_EVENT, {
+            detail: deviceId,
+        })
+    );
+}
+
+export function onAudioDeviceChange(
+    callback: () => void
+): () => void {
+    window.addEventListener(AUDIO_DEVICE_CHANGED_EVENT, callback);
+    return () => window.removeEventListener(AUDIO_DEVICE_CHANGED_EVENT, callback);
 }
 
 export function getVolume(): number {

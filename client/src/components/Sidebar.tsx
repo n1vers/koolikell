@@ -7,6 +7,7 @@ interface SidebarProps {
 
     onNavigate: (page: PageId) => void;
     accessRole?: "master" | "playnow" | null;
+    pinsConfigured: boolean | null;
     onRequestPin: () => void;
     onLogout: () => void;
 }
@@ -85,11 +86,12 @@ export default function Sidebar({
     currentPage,
     onNavigate,
     accessRole = null,
+    pinsConfigured,
     onRequestPin,
     onLogout,
 }: SidebarProps) {
     const visibleItems =
-        accessRole === "master"
+        pinsConfigured === false || accessRole === "master"
             ? ITEMS
             : accessRole === "playnow"
                 ? ITEMS.filter((item) => item.id === "playnow")
@@ -159,7 +161,7 @@ export default function Sidebar({
                     );
                 })}
 
-                {accessRole === null && (
+                {accessRole === null && pinsConfigured === true && (
                     <button
                         type="button"
                         onClick={onRequestPin}
