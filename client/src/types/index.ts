@@ -27,14 +27,22 @@ export interface Schedule {
     soundId: number | null;
 
     preBellSoundId: number | null;
+    changeBellEnabled: boolean;
+    changeBellSoundId: number | null;
 
     sound: Sound | null;
+    changeBellSound?: Sound | null;
 }
 
 export interface Profile {
     id: number;
 
     name: string;
+    preBellMinutes: number;
+    lessonDurationMinutes: number;
+    changeBellEnabled: boolean;
+    changeBellSoundId: number | null;
+    changeBellSound?: Sound | null;
 
     createdAt: string;
 

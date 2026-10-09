@@ -35,7 +35,8 @@ const prisma =
 
 export type BellEventType =
     | "PRE_BELL"
-    | "BELL";
+    | "BELL"
+    | "CHANGE_BELL";
 
 
 export interface BellEvent {
@@ -170,6 +171,15 @@ export async function getNextBellEvent(
      * текущего профиля.
      */
 
+    const profile =
+        await prisma.profile.findUnique({
+            where: { id: profileId },
+        });
+
+    if (!profile) {
+        return null;
+    }
+
     const schedules =
         await prisma.schedule.findMany({
 
@@ -183,6 +193,7 @@ export async function getNextBellEvent(
             include: {
                 sound: true,
                 preBellSound: true,
+                changeBellSound: true,
             },
 
             orderBy: [
@@ -237,6 +248,12 @@ export async function getNextBellEvent(
     const events:
         BellEvent[] = [];
 
+
+    const explicitEndTimes = new Set(
+        schedules
+            .filter((schedule) => schedule.type === "LESSON_END")
+            .map((schedule) => timeToMinutes(schedule.time))
+    );
 
     for (
         const schedule of schedules
@@ -309,7 +326,11 @@ export async function getNextBellEvent(
 
 
             const preBellMinutes =
-                mainMinutes - preBellOffsetMinutes;
+                mainMinutes - (
+                    Number.isFinite(profile.preBellMinutes)
+                        ? profile.preBellMinutes
+                        : preBellOffsetMinutes
+                );
 
 
             events.push({
@@ -355,6 +376,33 @@ export async function getNextBellEvent(
                 enabled:
                     schedule.enabled,
             });
+
+        }
+
+        if (schedule.type === "LESSON_START") {
+            const changeMinutes =
+                timeToMinutes(schedule.time) + profile.lessonDurationMinutes;
+            if (
+                schedule.changeBellEnabled &&
+                schedule.changeBellSound &&
+                !explicitEndTimes.has(changeMinutes % (24 * 60))
+            ) {
+                events.push({
+                    scheduleId: schedule.id,
+                    profileId: schedule.profileId,
+                    dayOfWeek: currentDay,
+                    time: schedule.time,
+                    eventTime: minutesToTime(changeMinutes),
+                    eventType: "CHANGE_BELL",
+                    scheduleType: "LESSON_END",
+                    soundId: schedule.changeBellSoundId,
+                    preBellSoundId: null,
+                    sound: schedule.changeBellSound,
+                    preBellSound: null,
+                    preBellEnabled: false,
+                    enabled: schedule.enabled,
+                });
+            }
         }
     }
 

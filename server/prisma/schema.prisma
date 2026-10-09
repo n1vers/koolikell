@@ -8,6 +8,10 @@ datasource db {
 model Profile {
   id        Int        @id @default(autoincrement())
   name      String
+  preBellMinutes Int @default(2)
+  lessonDurationMinutes Int @default(45)
+  changeBellEnabled Boolean @default(false)
+  changeBellSoundId Int?
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
@@ -28,10 +32,13 @@ model Schedule {
 
     soundId        Int?
     preBellSoundId Int?
+    changeBellEnabled Boolean @default(false)
+    changeBellSoundId Int?
 
     profile Profile @relation(fields: [profileId], references: [id])
     sound   Sound?  @relation(fields: [soundId], references: [id])
     preBellSound Sound? @relation("PreBellSound", fields: [preBellSoundId], references: [id])
+    changeBellSound Sound? @relation("ChangeBellSound", fields: [changeBellSoundId], references: [id])
 }
 
 model Sound {
@@ -42,4 +49,5 @@ model Sound {
 
   schedules Schedule[]
   preBellSchedules Schedule[] @relation("PreBellSound")
+  changeBellSchedules Schedule[] @relation("ChangeBellSound")
 }

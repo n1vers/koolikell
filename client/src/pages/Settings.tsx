@@ -66,7 +66,6 @@ export function CopyButton({ text }: { text: string }) {
 }
 
 export interface SettingsProps {
-    preBellMinutes: number;
     windowsSettings: WindowsSettings;
     connectionInfo: ConnectionInfo | null;
     ntpServer: string;
@@ -74,7 +73,6 @@ export interface SettingsProps {
     nextMasterPin: string;
     playNowPin: string;
     pinsConfigured: boolean | null;
-    onPreBellMinutesChange: (value: number) => void;
     onNtpServerChange: (value: string) => void | Promise<void>;
     onWindowsSettingChange: (key: keyof WindowsSettings, value: boolean) => void | Promise<void>;
     onPinChange: (key: "currentMaster" | "nextMaster" | "playNow", value: string) => void;
@@ -83,7 +81,6 @@ export interface SettingsProps {
 }
 
 export default function Settings({
-    preBellMinutes,
     windowsSettings,
     connectionInfo,
     ntpServer,
@@ -91,7 +88,6 @@ export default function Settings({
     nextMasterPin,
     playNowPin,
     pinsConfigured,
-    onPreBellMinutesChange,
     onNtpServerChange,
     onWindowsSettingChange,
     onPinChange,
@@ -137,14 +133,6 @@ export default function Settings({
                 <div className="grid w-full items-start gap-[18px] xl:grid-cols-2">
                     <SettingsCard title="Heli" description="Vali heliväljund ja helitugevus.">
                         <AudioSettings />
-                        <div className="mt-[28px] border-t border-[#eef1f5] pt-[22px]">
-                            <label htmlFor="pre-bell-minutes" className="block text-[14px] font-medium text-[#1f2937]">Eelhelinaeg</label>
-                            <p className="m-0 mt-[4px] text-[13px] leading-[20px] text-[#8792a5]">Mitu minutit enne kella eelhelin mängib.</p>
-                            <div className="mt-[12px] flex items-center gap-[10px]">
-                                <input id="pre-bell-minutes" type="number" min="0" max="60" value={preBellMinutes} onChange={(event) => onPreBellMinutesChange(Number(event.target.value))} className="h-[40px] w-[90px] rounded-[8px] border border-[#d9dee8] bg-white px-[12px] text-[14px] tabular-nums text-[#1f2937] outline-none transition focus:border-[#5798f5] focus:ring-2 focus:ring-[#5798f5]/20" />
-                                <span className="text-[13px] text-[#647085]">min</span>
-                            </div>
-                        </div>
                     </SettingsCard>
 
                     <SettingsCard title="Windows" description="Määra, kuidas koolikell Windowsis käivitub.">

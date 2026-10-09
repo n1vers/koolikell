@@ -159,7 +159,7 @@ export default function App() {
                 ) !== "false"
         );
 
-    const [preBellMinutes, setPreBellMinutes] =
+    const [, setPreBellMinutes] =
         useState(() =>
             Number(
                 localStorage.getItem(
@@ -291,21 +291,6 @@ export default function App() {
         } catch (toggleError) {
             writeAppLog("error", "Automatic calling setting update failed", toggleError);
             setError("Automaatsete kõnede seadistuse muutmine ebaõnnestus");
-        }
-    }
-
-    async function handlePreBellMinutesChange(value: number) {
-        const next = Math.max(0, Math.min(60, value));
-
-        setPreBellMinutes(next);
-        try {
-            const synced = await updateSyncedSettings({ preBellMinutes: next });
-            const saved = synced.preBellMinutes;
-            setPreBellMinutes(saved);
-            localStorage.setItem("schoolbell-pre-bell-minutes", String(saved));
-        } catch (saveError) {
-            writeAppLog("error", "Pre-bell setting update failed", saveError);
-            setError("Eelhelina seadistuse salvestamine ebaõnnestus");
         }
     }
 
@@ -890,6 +875,14 @@ export default function App() {
         try {
             const sourceSchedules = schedulesByProfile[profile.id] ?? [];
             const copiedProfile = await createProfile(`${profile.name} (koopia)`);
+            const copiedProfileWithSettings = await updateProfile(
+                copiedProfile.id,
+                copiedProfile.name,
+                {
+                    preBellMinutes: profile.preBellMinutes,
+                    lessonDurationMinutes: profile.lessonDurationMinutes,
+                }
+            );
             const copiedSchedules = await Promise.all(
                 sourceSchedules.map((schedule) =>
                     createSchedule(
@@ -899,11 +892,13 @@ export default function App() {
                         schedule.type,
                         schedule.preBellEnabled,
                         schedule.soundId,
-                        schedule.preBellSoundId
+                        schedule.preBellSoundId,
+                        schedule.changeBellEnabled,
+                        schedule.changeBellSoundId
                     )
                 )
             );
-            setProfiles((current) => [...current, copiedProfile]);
+            setProfiles((current) => [...current, copiedProfileWithSettings]);
             setSchedulesByProfile((current) => ({
                 ...current,
                 [copiedProfile.id]: copiedSchedules,
@@ -1040,6 +1035,25 @@ export default function App() {
         );
     }
 
+    async function handleUpdateProfileSettings(
+        changes: Partial<Pick<Profile, "preBellMinutes" | "lessonDurationMinutes" | "changeBellEnabled" | "changeBellSoundId">>
+    ) {
+        if (!selectedProfile) {
+            return;
+        }
+        const updatedProfile = await updateProfile(
+            selectedProfile.id,
+            selectedProfile.name,
+            changes
+        );
+        setProfiles((current) =>
+            current.map((item) => item.id === updatedProfile.id ? updatedProfile : item)
+        );
+        setSelectedProfile((current) =>
+            current?.id === updatedProfile.id ? updatedProfile : current
+        );
+    }
+
 
     // =========================================
     // OPEN PROFILE
@@ -1089,7 +1103,9 @@ export default function App() {
         time: string,
         preBellEnabled: boolean,
         soundId: number | null,
-        preBellSoundId: number | null
+        preBellSoundId: number | null,
+        changeBellEnabled: boolean,
+        changeBellSoundId: number | null
     ) {
         if (!selectedProfile) {
             return;
@@ -1106,7 +1122,9 @@ export default function App() {
                     "LESSON_START",
                     preBellEnabled,
                     soundId,
-                    preBellSoundId
+                    preBellSoundId,
+                    changeBellEnabled,
+                    changeBellSoundId
                 );
 
             setSchedulesByProfile(
@@ -1168,7 +1186,9 @@ export default function App() {
                     schedule.preBellEnabled,
 
                     schedule.soundId ?? null,
-                    schedule.preBellSoundId ?? null
+                    schedule.preBellSoundId ?? null,
+                    schedule.changeBellEnabled,
+                    schedule.changeBellSoundId ?? null
                 );
 
             setSchedulesByProfile(
@@ -1545,6 +1565,7 @@ export default function App() {
                 "schedule-editor" &&
                 selectedProfile && (
                     <ScheduleEditor
+                        profile={selectedProfile}
                         profileName={
                             selectedProfile.name
                         }
@@ -1586,6 +1607,7 @@ export default function App() {
                                     ? handleRenameProfile(selectedProfile, name)
                                     : Promise.resolve()
                         }
+                        onUpdateProfile={handleUpdateProfileSettings}
                     />
                 )}
 
@@ -1609,7 +1631,6 @@ export default function App() {
 
             {currentPage === "settings" && (
                 <Settings
-                    preBellMinutes={preBellMinutes}
                     windowsSettings={windowsSettings}
                     connectionInfo={connectionInfo}
                     ntpServer={ntpServer}
@@ -1617,7 +1638,6 @@ export default function App() {
                     nextMasterPin={nextMasterPin}
                     playNowPin={playNowPin}
                     pinsConfigured={pinsConfigured}
-                    onPreBellMinutesChange={handlePreBellMinutesChange}
                     onNtpServerChange={handleNtpServerChange}
                     onWindowsSettingChange={updateWindowsSetting}
                     onPinChange={(key, value) => {

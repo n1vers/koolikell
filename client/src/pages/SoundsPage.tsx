@@ -101,6 +101,7 @@ export default function SoundsPage() {
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const soundsRefreshInFlight = useRef(false);
     const playbackGeneration = useRef(0);
+    const soundNameSaveInFlight = useRef(new Set<number>());
 
     // ============================================
     // LOAD SOUNDS
@@ -338,12 +339,23 @@ export default function SoundsPage() {
     }
 
     async function saveEditing(sound: Sound) {
-        const name = editingName.trim();
-
-        if (!name) {
+        if (soundNameSaveInFlight.current.has(sound.id)) {
             return;
         }
 
+        const name = editingName.trim();
+
+        if (!name) {
+            setEditingName(sound.name);
+            return;
+        }
+
+        if (name === sound.name) {
+            cancelEditing();
+            return;
+        }
+
+        soundNameSaveInFlight.current.add(sound.id);
         try {
             const updated = await updateSound(sound.id, name, sound.fileName);
 
@@ -356,6 +368,8 @@ export default function SoundsPage() {
             console.error(error);
 
             alert("Heli nime muutmine ebaõnnestus.");
+        } finally {
+            soundNameSaveInFlight.current.delete(sound.id);
         }
     }
 
@@ -621,6 +635,22 @@ export default function SoundsPage() {
                                                         cancelEditing();
                                                     }
                                                 }}
+                                                onBlur={(event) => {
+                                                    const nextElement =
+                                                        event.relatedTarget instanceof HTMLElement
+                                                            ? event.relatedTarget
+                                                            : null;
+
+                                                    if (
+                                                        nextElement?.closest(
+                                                            'button[data-edit-action="cancel"], button[data-edit-action="save"]'
+                                                        )
+                                                    ) {
+                                                        return;
+                                                    }
+
+                                                    void saveEditing(sound);
+                                                }}
                                                 className="h-[36px] w-full rounded-[8px] border border-[#d9dee8] bg-white px-[10px] text-[14px] text-[#1f2937] outline-none transition focus:border-[#5798f5] focus:ring-2 focus:ring-[#5798f5]/20"
                                             />
                                         ) : (
@@ -644,6 +674,7 @@ export default function SoundsPage() {
                                                 <button
                                                     type="button"
                                                     onClick={() => void saveEditing(sound)}
+                                                    data-edit-action="save"
                                                     className={`${GHOST_BTN} bg-[#5798f5] text-white hover:bg-[#4688e7]`}
                                                 >
                                                     Salvesta
@@ -652,6 +683,7 @@ export default function SoundsPage() {
                                                 <button
                                                     type="button"
                                                     onClick={cancelEditing}
+                                                    data-edit-action="cancel"
                                                     className={`${GHOST_BTN} text-[#6b7280] hover:bg-[#f3f4f6]`}
                                                 >
                                                     Tühista

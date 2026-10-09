@@ -18,10 +18,10 @@ interface ProfilesProps {
 
 const WEEKDAYS = ["Esmaspäev", "Teisipäev", "Kolmapäev", "Neljapäev", "Reede"];
 
-function getEndTime(time: string) {
+function getEndTime(time: string, durationMinutes: number) {
     const [hours, minutes] = time.split(":").map(Number);
 
-    const totalMinutes = hours * 60 + minutes + 45;
+    const totalMinutes = hours * 60 + minutes + durationMinutes;
 
     const endHours = Math.floor(totalMinutes / 60) % 24;
     const endMinutes = totalMinutes % 60;
@@ -32,7 +32,7 @@ function getEndTime(time: string) {
     )}`;
 }
 
-function getProfileInfo(schedules: Schedule[]) {
+function getProfileInfo(schedules: Schedule[], durationMinutes = 45) {
     const enabledSchedules = schedules.filter(
         (schedule) => schedule.enabled !== false
     );
@@ -53,7 +53,7 @@ function getProfileInfo(schedules: Schedule[]) {
 
     return {
         count: sorted.length,
-        range: `${first.time}–${getEndTime(last.time)}`,
+        range: `${first.time}–${getEndTime(last.time, durationMinutes)}`,
     };
 }
 
@@ -194,7 +194,10 @@ export default function Profiles({
                     <div className="flex flex-col gap-[12px]">
                         {profiles.map((profile) => {
                             const schedules = schedulesByProfile[profile.id] ?? [];
-                            const info = getProfileInfo(schedules);
+                            const info = getProfileInfo(
+                                schedules,
+                                profile.lessonDurationMinutes ?? 45
+                            );
 
                             return (
                                 <article

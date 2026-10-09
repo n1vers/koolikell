@@ -230,7 +230,14 @@ export async function createProfile(
 
 export async function updateProfile(
     id: number,
-    name: string
+    name: string,
+    settings: Partial<Pick<
+        Profile,
+        "preBellMinutes" |
+        "lessonDurationMinutes" |
+        "changeBellEnabled" |
+        "changeBellSoundId"
+    >> = {}
 ): Promise<Profile> {
     const response = await fetch(
         `${API_URL}/api/profiles/${id}`,
@@ -239,7 +246,7 @@ export async function updateProfile(
             headers: {
                 "Content-Type": "application/json",
             },
-            body: JSON.stringify({ name }),
+            body: JSON.stringify({ name, ...settings }),
         }
     );
 
@@ -299,7 +306,9 @@ export async function createSchedule(
     type: ScheduleType,
     preBellEnabled: boolean,
     soundId: number | null,
-    preBellSoundId: number | null
+    preBellSoundId: number | null,
+    changeBellEnabled: boolean,
+    changeBellSoundId: number | null
 ): Promise<Schedule> {
 
     const response = await fetch(
@@ -318,6 +327,8 @@ export async function createSchedule(
                 preBellEnabled,
                 soundId,
                 preBellSoundId,
+                changeBellEnabled,
+                changeBellSoundId,
             }),
         }
     );
@@ -340,7 +351,9 @@ export async function updateSchedule(
     enabled: boolean,
     preBellEnabled: boolean,
     soundId: number | null,
-    preBellSoundId: number | null
+    preBellSoundId: number | null,
+    changeBellEnabled: boolean,
+    changeBellSoundId: number | null
 ): Promise<Schedule> {
 
     const response = await fetch(
@@ -360,6 +373,8 @@ export async function updateSchedule(
                 preBellEnabled,
                 soundId,
                 preBellSoundId,
+                changeBellEnabled,
+                changeBellSoundId,
             }),
         }
     );

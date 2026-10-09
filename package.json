@@ -1,6 +1,6 @@
 {
     "name": "koolikell",
-    "version": "1.1.5",
+    "version": "1.1.6",
     "productName": "koolikell",
     "description": "Koolikellade ajakava ja automaatne helistamine Windowsis",
     "main": "dist-electron/main.js",
@@ -19,6 +19,7 @@
     "build": {
         "appId": "ee.koolikell.app",
         "productName": "koolikell",
+        "compression": "maximum",
         "directories": {
             "output": "release"
         },
@@ -84,7 +85,8 @@
             "allowToChangeInstallationDirectory": true,
             "createDesktopShortcut": true,
             "createStartMenuShortcut": true,
-            "shortcutName": "koolikell"
+            "shortcutName": "koolikell",
+            "deleteAppDataOnUninstall": true
         }
     },
 

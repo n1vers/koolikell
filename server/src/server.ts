@@ -198,8 +198,15 @@ function initializeDatabase() {
         CREATE TABLE IF NOT EXISTS "Profile" (
             "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
             "name" TEXT NOT NULL,
+            "preBellMinutes" INTEGER NOT NULL DEFAULT 2,
+            "lessonDurationMinutes" INTEGER NOT NULL DEFAULT 45,
+            "changeBellEnabled" BOOLEAN NOT NULL DEFAULT false,
+            "changeBellSoundId" INTEGER,
             "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            "updatedAt" DATETIME NOT NULL
+            "updatedAt" DATETIME NOT NULL,
+            CONSTRAINT "Profile_changeBellSoundId_fkey"
+                FOREIGN KEY ("changeBellSoundId") REFERENCES "Sound" ("id")
+                ON DELETE SET NULL ON UPDATE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS "Sound" (
@@ -219,6 +226,8 @@ function initializeDatabase() {
             "preBellEnabled" BOOLEAN NOT NULL DEFAULT true,
             "soundId" INTEGER,
             "preBellSoundId" INTEGER,
+            "changeBellEnabled" BOOLEAN NOT NULL DEFAULT false,
+            "changeBellSoundId" INTEGER,
             CONSTRAINT "Schedule_profileId_fkey"
                 FOREIGN KEY ("profileId") REFERENCES "Profile" ("id")
                 ON DELETE RESTRICT ON UPDATE CASCADE,
@@ -227,6 +236,9 @@ function initializeDatabase() {
                 ON DELETE SET NULL ON UPDATE CASCADE,
             CONSTRAINT "Schedule_preBellSoundId_fkey"
                 FOREIGN KEY ("preBellSoundId") REFERENCES "Sound" ("id")
+                ON DELETE SET NULL ON UPDATE CASCADE,
+            CONSTRAINT "Schedule_changeBellSoundId_fkey"
+                FOREIGN KEY ("changeBellSoundId") REFERENCES "Sound" ("id")
                 ON DELETE SET NULL ON UPDATE CASCADE
         );
 
@@ -247,6 +259,32 @@ function initializeDatabase() {
         VALUES ('ntpServer', 'ntp1.eenet.ee');
 
     `);
+
+    const profileColumns = database
+        .prepare('PRAGMA table_info("Profile")')
+        .all() as Array<{ name: string }>;
+    const existingProfileColumns = new Set(profileColumns.map((column) => column.name));
+    const profileAlterations: Array<[string, string]> = [
+        ["preBellMinutes", 'ALTER TABLE "Profile" ADD COLUMN "preBellMinutes" INTEGER NOT NULL DEFAULT 2'],
+        ["lessonDurationMinutes", 'ALTER TABLE "Profile" ADD COLUMN "lessonDurationMinutes" INTEGER NOT NULL DEFAULT 45'],
+        ["changeBellEnabled", 'ALTER TABLE "Profile" ADD COLUMN "changeBellEnabled" BOOLEAN NOT NULL DEFAULT false'],
+        ["changeBellSoundId", 'ALTER TABLE "Profile" ADD COLUMN "changeBellSoundId" INTEGER'],
+    ];
+    for (const [column, statement] of profileAlterations) {
+        if (!existingProfileColumns.has(column)) {
+            database.exec(statement);
+        }
+        const scheduleColumns = database
+            .prepare('PRAGMA table_info("Schedule")')
+            .all() as Array<{ name: string }>;
+        const existingScheduleColumns = new Set(scheduleColumns.map((column) => column.name));
+        if (!existingScheduleColumns.has("changeBellEnabled")) {
+            database.exec('ALTER TABLE "Schedule" ADD COLUMN "changeBellEnabled" BOOLEAN NOT NULL DEFAULT false');
+        }
+        if (!existingScheduleColumns.has("changeBellSoundId")) {
+            database.exec('ALTER TABLE "Schedule" ADD COLUMN "changeBellSoundId" INTEGER');
+        }
+    }
 
     // Older versions created insecure default PINs. Remove those defaults
     // once so existing installations also start in the unconfigured state.
@@ -785,9 +823,7 @@ app.post(
     "/api/profiles",
     async (req, res) => {
         try {
-            const {
-                name,
-            } = req.body;
+            const { name } = req.body;
 
             if (!name) {
                 return res
@@ -833,6 +869,10 @@ app.put(
 
             const {
                 name,
+                preBellMinutes,
+                lessonDurationMinutes,
+                changeBellEnabled,
+                changeBellSoundId,
             } = req.body;
 
             if (!name) {
@@ -847,7 +887,21 @@ app.put(
             const profile =
                 await updateProfile(
                     id,
-                    name
+                    name,
+                    {
+                        ...(preBellMinutes === undefined
+                            ? {}
+                            : { preBellMinutes: Math.max(0, Math.min(60, Number(preBellMinutes))) }),
+                        ...(lessonDurationMinutes === undefined
+                            ? {}
+                            : { lessonDurationMinutes: Math.max(1, Math.min(240, Number(lessonDurationMinutes))) }),
+                        ...(changeBellEnabled === undefined
+                            ? {}
+                            : { changeBellEnabled: Boolean(changeBellEnabled) }),
+                        ...(changeBellSoundId === undefined
+                            ? {}
+                            : { changeBellSoundId: changeBellSoundId === null ? null : Number(changeBellSoundId) }),
+                    }
                 );
 
             res.json(
@@ -991,6 +1045,8 @@ app.post(
                 preBellEnabled,
                 soundId,
                 preBellSoundId,
+                changeBellEnabled,
+                changeBellSoundId,
             } = req.body;
 
 
@@ -1040,6 +1096,9 @@ app.post(
                 soundId ?? null
                 ,
                 preBellSoundId ?? null
+                ,
+                Boolean(changeBellEnabled),
+                changeBellSoundId ?? null
             );
 
 
@@ -1090,6 +1149,8 @@ app.put(
                 preBellEnabled,
                 soundId,
                 preBellSoundId,
+                changeBellEnabled,
+                changeBellSoundId,
             } = req.body;
 
 
@@ -1159,6 +1220,9 @@ app.put(
 
                     preBellSoundId ??
                         null
+                    ,
+                    Boolean(changeBellEnabled),
+                    changeBellSoundId ?? null
                 );
 
 

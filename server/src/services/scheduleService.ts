@@ -44,6 +44,7 @@ export async function getSchedules(
         include: {
             sound: true,
             preBellSound: true,
+            changeBellSound: true,
         },
 
         orderBy: [
@@ -70,7 +71,9 @@ export async function createSchedule(
     type: string,
     preBellEnabled: boolean,
     soundId: number | null = null,
-    preBellSoundId: number | null = null
+    preBellSoundId: number | null = null,
+    changeBellEnabled = false,
+    changeBellSoundId: number | null = null
 ) {
     return prisma.schedule.create({
         data: {
@@ -97,11 +100,14 @@ export async function createSchedule(
                 type === "LESSON_START"
                     ? preBellSoundId
                     : null,
+            changeBellEnabled: type === "LESSON_START" ? changeBellEnabled : false,
+            changeBellSoundId: type === "LESSON_START" ? changeBellSoundId : null,
         },
 
         include: {
             sound: true,
             preBellSound: true,
+            changeBellSound: true,
         },
     });
 }
@@ -119,7 +125,9 @@ export async function updateSchedule(
     enabled: boolean,
     preBellEnabled: boolean,
     soundId: number | null,
-    preBellSoundId: number | null
+    preBellSoundId: number | null,
+    changeBellEnabled = false,
+    changeBellSoundId: number | null = null
 ) {
     return prisma.schedule.update({
         where: {
@@ -147,10 +155,14 @@ export async function updateSchedule(
                 type === "LESSON_START"
                     ? preBellSoundId
                     : null,
+            changeBellEnabled: type === "LESSON_START" ? changeBellEnabled : false,
+            changeBellSoundId: type === "LESSON_START" ? changeBellSoundId : null,
         },
 
         include: {
             sound: true,
+            preBellSound: true,
+            changeBellSound: true,
         },
     });
 }

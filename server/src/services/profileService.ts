@@ -24,13 +24,25 @@ export async function createProfile(name: string) {
     });
 }
 
-export async function updateProfile(id: number, name: string) {
+export interface ProfileSettings {
+    preBellMinutes?: number;
+    lessonDurationMinutes?: number;
+    changeBellEnabled?: boolean;
+    changeBellSoundId?: number | null;
+}
+
+export async function updateProfile(
+    id: number,
+    name: string,
+    settings: ProfileSettings = {}
+) {
     return prisma.profile.update({
         where: {
             id,
         },
         data: {
             name,
+            ...settings,
         },
     });
 }
