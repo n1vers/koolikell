@@ -24,7 +24,7 @@ npm run electron
 Установщик находится в официальном [GitHub Release v1.1.6](https://github.com/n1vers/koolikell/releases/tag/v1.1.6).
 
 SHA-256 актуального установщика:
-`e7d1e55e50f5bab046db93f838f7eb320b63752c15b9a3d80f36b74c0ae7106d`
+`8212f086eab0e58f762719631ef5bda114fcf024675260826f664db5e94c803a`
 
 ## Что умеет программа
 
