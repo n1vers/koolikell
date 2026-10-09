@@ -19,12 +19,12 @@ npm run electron
 
 ## Скачать
 
-**[Скачать koolikell v1.1.6 для Windows](https://github.com/n1vers/koolikell/releases/download/v1.1.6/koolikell.Setup.1.1.6.exe)**
+**[Скачать koolikell v1.1.7 для Windows](https://github.com/n1vers/koolikell/releases/download/v1.1.7/koolikell.Setup.1.1.7.exe)**
 
-Установщик находится в официальном [GitHub Release v1.1.6](https://github.com/n1vers/koolikell/releases/tag/v1.1.6).
+Установщик находится в официальном [GitHub Release v1.1.7](https://github.com/n1vers/koolikell/releases/tag/v1.1.7).
 
 SHA-256 актуального установщика:
-`8212f086eab0e58f762719631ef5bda114fcf024675260826f664db5e94c803a`
+`119af250ffb9a7f61060c0abbfded9ceedc76db5ac0aca279a661b78788fcd3b`
 
 ## Что умеет программа
 
@@ -54,7 +54,7 @@ SHA-256 актуального установщика:
 ## Установка
 
 1. Скачайте установщик по ссылке в разделе [Скачать](#скачать).
-2. Запустите файл `koolikell.Setup.1.1.6.exe`.
+2. Запустите файл `koolikell.Setup.1.1.7.exe`.
 3. Следуйте инструкциям установщика.
 4. Запустите SchoolBell через меню «Пуск» или ярлык на рабочем столе.
 
