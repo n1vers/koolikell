@@ -135,8 +135,15 @@ export default function ScheduleEditor({
     const [newTime, setNewTime] = useState("08:00");
 
     const [newPreBellEnabled, setNewPreBellEnabled] = useState(true);
-    const [newChangeBellEnabled, setNewChangeBellEnabled] = useState(false);
-    const [newChangeBellSoundId, setNewChangeBellSoundId] = useState<number | null>(null);
+    const [newChangeBellEnabled, setNewChangeBellEnabled] = useState(true);
+    const [newChangeBellSoundId, setNewChangeBellSoundId] = useState<number | null>(
+        () => {
+            const value = localStorage.getItem(
+                "schoolbell-default-change-bell-sound-id"
+            );
+            return value === null ? null : Number(value);
+        }
+    );
 
     const [newSoundId, setNewSoundId] = useState<number | null>(() => {
         const value = localStorage.getItem("schoolbell-default-sound-id");
@@ -197,6 +204,10 @@ export default function ScheduleEditor({
             setAddError("Vali eelheli või lülita eelhelin välja.");
             return;
         }
+        if (newChangeBellEnabled && newChangeBellSoundId === null) {
+            setAddError("Vali vahetunni heli või lülita vahetunni heli välja.");
+            return;
+        }
 
         setAddError("");
         try {
@@ -211,8 +222,7 @@ export default function ScheduleEditor({
 
             setNewTime("08:00");
             setNewPreBellEnabled(true);
-            setNewChangeBellEnabled(false);
-            setNewChangeBellSoundId(null);
+            setNewChangeBellEnabled(true);
         } catch (error) {
             console.error("Failed to add schedule:", error);
         }
@@ -693,11 +703,22 @@ export default function ScheduleEditor({
                                     <select
                                         value={newChangeBellSoundId ?? ""}
                                         disabled={!newChangeBellEnabled}
+                                        aria-invalid={
+                                            newChangeBellEnabled && newChangeBellSoundId === null
+                                        }
                                         onChange={(event) => {
                                             setAddError("");
-                                            setNewChangeBellSoundId(toId(event.target.value));
+                                            rememberSound(
+                                                "schoolbell-default-change-bell-sound-id",
+                                                toId(event.target.value),
+                                                setNewChangeBellSoundId
+                                            );
                                         }}
-                                        className={`${INPUT_BASE} min-w-0 truncate disabled:cursor-not-allowed disabled:bg-[#f5f7fb] disabled:text-[#a3adbd]`}
+                                        className={`${INPUT_BASE} min-w-0 truncate ${
+                                            newChangeBellEnabled && newChangeBellSoundId === null
+                                                ? "border-[#e05252]"
+                                                : ""
+                                        } disabled:cursor-not-allowed disabled:bg-[#f5f7fb] disabled:text-[#a3adbd]`}
                                     >
                                         <option value="">Vali heli</option>
                                         {sounds.map((sound) => (
