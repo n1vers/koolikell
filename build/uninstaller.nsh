@@ -22,9 +22,9 @@ Function un.ShowUserDataChoice
 FunctionEnd
 !endif
 
-!macro customUnInit
+!macro customUninstallPage
   !ifdef BUILD_UNINSTALLER
-    Call un.ShowUserDataChoice
+    UninstPage custom un.ShowUserDataChoice
   !endif
 !macroend
 
