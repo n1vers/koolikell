@@ -23,6 +23,9 @@ npm run electron
 
 Установщик находится в официальном [GitHub Release v1.1.6](https://github.com/n1vers/koolikell/releases/tag/v1.1.6).
 
+SHA-256 актуального установщика:
+`e7d1e55e50f5bab046db93f838f7eb320b63752c15b9a3d80f36b74c0ae7106d`
+
 ## Что умеет программа
 
 - создавать несколько профилей расписания для разных дней и режимов;
