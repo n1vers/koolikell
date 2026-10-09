@@ -1,6 +1,12 @@
 !include nsDialogs.nsh
 !include LogicLib.nsh
 
+!macro customInit
+  ; Close a running copy before an upgrade, including copies from an old install directory.
+  nsExec::ExecToLog '"$SYSDIR\taskkill.exe" /F /T /IM "${APP_EXECUTABLE_FILENAME}"'
+  Sleep 500
+!macroend
+
 !ifdef BUILD_UNINSTALLER
 Var un.DeleteUserDataCheckbox
 

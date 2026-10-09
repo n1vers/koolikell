@@ -238,7 +238,18 @@ function stopServer() {
         return;
     }
     console.log("Stopping koolikell server...");
+    const processId = serverProcess.pid;
     serverProcess.kill();
+    if (process.platform === "win32" && processId) {
+        void execFileAsync("taskkill.exe", [
+            "/PID",
+            String(processId),
+            "/T",
+            "/F",
+        ]).catch((error) => {
+            writeMainLog("warn", "Failed to stop server process tree", error);
+        });
+    }
     serverProcess = null;
 }
 electron_1.ipcMain.handle("windows-settings:get", () => {
@@ -405,6 +416,10 @@ electron_1.app.on("window-all-closed", () => {
 electron_1.app.on("before-quit", () => {
     isQuitting = true;
     stopServer();
+});
+electron_1.app.on("will-quit", () => {
+    tray?.destroy();
+    tray = null;
 });
 electron_1.ipcMain.handle("automatic-enabled:set", (_event, enabled) => {
     if (typeof enabled !== "boolean") {

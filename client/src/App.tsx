@@ -1478,6 +1478,13 @@ export default function App() {
                         schedules
                     }
 
+                    lessonDurationMinutes={
+                        profiles.find(
+                            (profile) =>
+                                profile.id === schedules[0]?.profileId
+                        )?.lessonDurationMinutes ?? 45
+                    }
+
                     nextSchedule={
                         schedules[0] ??
                         null

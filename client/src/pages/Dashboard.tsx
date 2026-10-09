@@ -6,6 +6,8 @@ import type { Schedule } from "../types";
 interface DashboardProps {
     schedules: Schedule[];
 
+    lessonDurationMinutes: number;
+
     nextSchedule?: Schedule | null;
 
     automaticEnabled: boolean;
@@ -37,17 +39,73 @@ function getTimeUntilNextBell(schedule: Schedule | null, now: Date): string {
     return `${String(Math.floor(totalSeconds / 60)).padStart(2, "0")}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
-function getNextSchedule(schedules: Schedule[], now: Date) {
+function getNextSchedule(
+    schedules: Schedule[],
+    now: Date,
+    lessonDurationMinutes: number
+) {
     const currentSeconds =
         now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
 
+    const explicitEndTimes = new Set(
+        schedules
+            .filter((schedule) => schedule.type === "LESSON_END")
+            .map((schedule) => schedule.time)
+    );
+
+    const events = schedules.flatMap((schedule) => {
+        if (schedule.type !== "LESSON_START") {
+            return [schedule];
+        }
+
+        const endTime = getLessonEndTime(schedule, lessonDurationMinutes);
+        if (!endTime || explicitEndTimes.has(endTime)) {
+            return [schedule];
+        }
+
+        return [
+            schedule,
+            {
+                ...schedule,
+                id: -schedule.id,
+                time: endTime,
+                type: "LESSON_END" as const,
+                preBellEnabled: false,
+                preBellSoundId: null,
+                changeBellEnabled: false,
+                changeBellSoundId: null,
+            },
+        ];
+    }).sort((a, b) => a.time.localeCompare(b.time));
+
     return (
-        schedules.find((schedule) => {
+        events.find((schedule) => {
             const [hours, minutes] = schedule.time.split(":").map(Number);
 
             return hours * 3600 + minutes * 60 >= currentSeconds;
         }) ?? null
     );
+}
+
+function getLessonEndTime(
+    schedule: Schedule,
+    lessonDurationMinutes: number
+) {
+    if (schedule.type !== "LESSON_START") {
+        return null;
+    }
+
+    const [hours, minutes] = schedule.time.split(":").map(Number);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+        return null;
+    }
+
+    const endMinutes =
+        (hours * 60 + minutes + lessonDurationMinutes) % (24 * 60);
+
+    return `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(
+        endMinutes % 60
+    ).padStart(2, "0")}`;
 }
 
 // ============================================
@@ -110,6 +168,7 @@ function getDashboardLogKey(log: AppLogEntry) {
 
 export default function Dashboard({
     schedules,
+    lessonDurationMinutes,
     automaticEnabled,
     onToggleAutomatic,
     onEditSchedule,
@@ -201,7 +260,11 @@ export default function Dashboard({
         return () => window.clearInterval(timer);
     }, [clockOffsetMs]);
 
-    const upcomingSchedule = getNextSchedule(schedules, now);
+    const upcomingSchedule = getNextSchedule(
+        schedules,
+        now,
+        lessonDurationMinutes
+    );
 
     const dateLabel = new Intl.DateTimeFormat("et-EE", {
         weekday: "long",
@@ -334,9 +397,16 @@ export default function Dashboard({
                                     Järgmine kell
                                 </p>
 
-                                <p className="m-0 mt-[4px] text-[32px] font-semibold leading-[40px] tabular-nums text-[#1b212d]">
-                                    {upcomingSchedule?.time ?? "--:--"}
-                                </p>
+                                <div className="mt-[4px] flex items-baseline gap-[8px]">
+                                    <p className="m-0 text-[32px] font-semibold leading-[40px] tabular-nums text-[#1b212d]">
+                                        {upcomingSchedule?.time ?? "--:--"}
+                                    </p>
+                                    {upcomingSchedule?.type === "LESSON_END" && (
+                                        <span className="text-[12px] font-medium text-[#8490a3]">
+                                            lõpp
+                                        </span>
+                                    )}
+                                </div>
                             </div>
 
                             <div>
@@ -403,8 +473,19 @@ export default function Dashboard({
 
                                         {/* START */}
 
-                                        <span className="text-[16px] font-semibold tabular-nums text-[#1b212d]">
-                                            {schedule.time}
+                                        <span className="flex flex-col gap-[2px]">
+                                            <span className="text-[16px] font-semibold tabular-nums text-[#1b212d]">
+                                                {schedule.time}
+                                            </span>
+                                            {schedule.type === "LESSON_START" && (
+                                                <span className="text-[12px] font-medium tabular-nums text-[#8490a3]">
+                                                    Lõpp{" "}
+                                                    {getLessonEndTime(
+                                                        schedule,
+                                                        lessonDurationMinutes
+                                                    ) ?? "—"}
+                                                </span>
+                                            )}
                                         </span>
 
                                         {/* SOUND */}

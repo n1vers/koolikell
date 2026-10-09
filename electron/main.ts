@@ -464,9 +464,19 @@ function stopServer() {
         "Stopping koolikell server..."
     );
 
-
+    const processId = serverProcess.pid;
     serverProcess.kill();
 
+    if (process.platform === "win32" && processId) {
+        void execFileAsync("taskkill.exe", [
+            "/PID",
+            String(processId),
+            "/T",
+            "/F",
+        ]).catch((error) => {
+            writeMainLog("warn", "Failed to stop server process tree", error);
+        });
+    }
 
     serverProcess = null;
 }
@@ -783,6 +793,11 @@ app.on(
 
     }
 );
+
+app.on("will-quit", () => {
+    tray?.destroy();
+    tray = null;
+});
 
 ipcMain.handle(
     "automatic-enabled:set",
