@@ -97,7 +97,7 @@ npm run dist:win
 
 Готовые файлы появятся в папке release:
 
-- `koolikell Setup 1.1.6.exe` — установщик Windows;
+- `koolikell Setup 1.1.7.exe` — установщик Windows;
 - `win-unpacked/koolikell.exe` — portable-сборка для локальной проверки.
 
 ## Открытый исходный код
