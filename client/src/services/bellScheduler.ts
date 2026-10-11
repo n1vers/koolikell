@@ -6,6 +6,9 @@ let timer: ReturnType<typeof setInterval> | null = null;
 
 let lastEventKey = "";
 let lastProfileSelectionKey = "";
+const SCHEDULER_DISABLED_AT_KEY = "schoolbell-scheduler-disabled-at";
+const MISSING_PROFILE_WARNING_KEY = "schoolbell-missing-profile-warning-date";
+let schedulerStartedAt = 0;
 
 
 /**
@@ -14,10 +17,6 @@ let lastProfileSelectionKey = "";
  */
 async function getNextBell() {
     const day = new Date().getDay() || 7;
-
-    if (day > 5) {
-        return null;
-    }
 
     const assignmentsResponse = await fetch(
         `${API_URL}/api/settings/profile-assignments`
@@ -46,12 +45,18 @@ async function getNextBell() {
             : null;
 
     if (profileId === null) {
-        writeAppLog(
-            "warn",
-            `Profiili pole määratud: ${dateKey}`
-        );
+        if (day > 5) {
+            return null;
+        }
+
+        if (localStorage.getItem(MISSING_PROFILE_WARNING_KEY) !== dateKey) {
+            localStorage.setItem(MISSING_PROFILE_WARNING_KEY, dateKey);
+            writeAppLog("warn", `Profiili pole määratud: ${dateKey}`);
+        }
         return null;
     }
+
+    localStorage.removeItem(MISSING_PROFILE_WARNING_KEY);
 
     const profileSelectionKey = `${dateKey}:${profileId}`;
     if (profileSelectionKey !== lastProfileSelectionKey) {
@@ -188,6 +193,25 @@ async function checkBell() {
                 now.toDateString(),
             ].join("-");
 
+        const disabledAt = Number(
+            localStorage.getItem(SCHEDULER_DISABLED_AT_KEY) ?? "0"
+        );
+        if (
+            disabledAt > 0 &&
+            disabledAt < now.getTime() &&
+            now.getTime() - disabledAt <= 24 * 60 * 60 * 1000 &&
+            schedulerStartedAt > disabledAt
+        ) {
+            lastEventKey = eventKey;
+            localStorage.removeItem(SCHEDULER_DISABLED_AT_KEY);
+            writeAppLog(
+                "info",
+                `Kell jäeti vahele ${event.eventType} ${event.eventTime}`,
+                `Automaatika oli sündmuse hetkel välja lülitatud`
+            );
+            return;
+        }
+
 
         if (
             lastEventKey ===
@@ -260,6 +284,7 @@ export function startBellScheduler() {
         return;
     }
 
+    schedulerStartedAt = Date.now();
 
     console.log(
         "[BELL] Scheduler started"
@@ -296,6 +321,10 @@ export function stopBellScheduler() {
         return;
     }
 
+    localStorage.setItem(
+        SCHEDULER_DISABLED_AT_KEY,
+        String(Date.now())
+    );
 
     clearInterval(timer);
 

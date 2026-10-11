@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { Profile, Schedule, Sound } from "../types";
 
@@ -131,6 +131,12 @@ export default function ScheduleEditor({
     const [profileNameDraft, setProfileNameDraft] = useState(profileName);
     const [savingProfileName, setSavingProfileName] = useState(false);
     const [savingProfileSettings, setSavingProfileSettings] = useState(false);
+    const [preBellMinutesDraft, setPreBellMinutesDraft] = useState(
+        String(profile.preBellMinutes)
+    );
+    const [lessonDurationMinutesDraft, setLessonDurationMinutesDraft] = useState(
+        String(profile.lessonDurationMinutes)
+    );
 
     const [newTime, setNewTime] = useState("08:00");
 
@@ -162,6 +168,11 @@ export default function ScheduleEditor({
     const [timeDrafts, setTimeDrafts] = useState<Record<number, string>>({});
     const [addError, setAddError] = useState("");
 
+    useEffect(() => {
+        setPreBellMinutesDraft(String(profile.preBellMinutes));
+        setLessonDurationMinutesDraft(String(profile.lessonDurationMinutes));
+    }, [profile.preBellMinutes, profile.lessonDurationMinutes]);
+
     async function updateProfileSetting(
         changes: Partial<Pick<Profile, "preBellMinutes" | "lessonDurationMinutes" | "changeBellEnabled" | "changeBellSoundId">>
     ) {
@@ -173,6 +184,33 @@ export default function ScheduleEditor({
         } finally {
             setSavingProfileSettings(false);
         }
+    }
+
+    async function saveProfileNumberSetting(
+        field: "preBellMinutes" | "lessonDurationMinutes",
+        value: string
+    ) {
+        const numericValue = Number(value);
+        if (!Number.isFinite(numericValue)) {
+            return;
+        }
+
+        const normalizedValue =
+            field === "preBellMinutes"
+                ? Math.max(0, Math.min(60, Math.round(numericValue)))
+                : Math.max(1, Math.min(240, Math.round(numericValue)));
+
+        if (field === "preBellMinutes") {
+            setPreBellMinutesDraft(String(normalizedValue));
+        } else {
+            setLessonDurationMinutesDraft(String(normalizedValue));
+        }
+
+        if (profile[field] === normalizedValue) {
+            return;
+        }
+
+        await updateProfileSetting({ [field]: normalizedValue });
     }
 
     function rememberSound(
@@ -371,6 +409,11 @@ export default function ScheduleEditor({
                         <p className="m-0 mt-[2px] text-[14px] text-[#5b6678]">
                             Kehtivad kõigile selle profiili kelladele.
                         </p>
+                        {savingProfileSettings && (
+                            <p className="m-0 mt-[4px] text-[12px] text-[#5798f5]">
+                                Salvestan...
+                            </p>
+                        )}
                     </div>
 
                     <label className="block">
@@ -379,12 +422,13 @@ export default function ScheduleEditor({
                             type="number"
                             min="0"
                             max="60"
-                            value={profile.preBellMinutes}
-                            disabled={savingProfileSettings}
-                            onChange={(event) =>
-                                void updateProfileSetting({
-                                    preBellMinutes: Math.max(0, Math.min(60, Number(event.target.value))),
-                                })
+                            value={preBellMinutesDraft}
+                            onChange={(event) => setPreBellMinutesDraft(event.target.value)}
+                            onBlur={(event) =>
+                                void saveProfileNumberSetting(
+                                    "preBellMinutes",
+                                    event.target.value
+                                )
                             }
                             className={`${INPUT_BASE} w-[140px] tabular-nums`}
                         />
@@ -396,12 +440,15 @@ export default function ScheduleEditor({
                             type="number"
                             min="1"
                             max="240"
-                            value={profile.lessonDurationMinutes}
-                            disabled={savingProfileSettings}
+                            value={lessonDurationMinutesDraft}
                             onChange={(event) =>
-                                void updateProfileSetting({
-                                    lessonDurationMinutes: Math.max(1, Math.min(240, Number(event.target.value))),
-                                })
+                                setLessonDurationMinutesDraft(event.target.value)
+                            }
+                            onBlur={(event) =>
+                                void saveProfileNumberSetting(
+                                    "lessonDurationMinutes",
+                                    event.target.value
+                                )
                             }
                             className={`${INPUT_BASE} w-[140px] tabular-nums`}
                         />

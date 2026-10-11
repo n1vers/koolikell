@@ -502,6 +502,11 @@ export default function Dashboard({
                                                     Eelhelin
                                                 </span>
                                             )}
+                                            {schedule.changeBellEnabled && (
+                                                <span className="shrink-0 rounded-full bg-[#eaf8ef] px-[8px] py-[2px] text-[11px] font-medium text-[#23834d]">
+                                                    Vahetunni heli
+                                                </span>
+                                            )}
                                             {isNext && (
                                                 <span className="shrink-0 rounded-full bg-[#eaf2ff] px-[8px] py-[2px] text-[11px] font-medium text-[#3f82df]">
                                                     Järgmine

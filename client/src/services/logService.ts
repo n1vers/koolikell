@@ -9,6 +9,8 @@ export interface AppLogEntry {
 }
 
 const STORAGE_KEY = "schoolbell-app-logs";
+const DASHBOARD_LOGS_SEEN_KEY = "schoolbell-dashboard-logs-seen-at";
+const DASHBOARD_LOG_IDS_SEEN_KEY = "schoolbell-dashboard-log-ids-seen";
 const MAX_LOGS = 250;
 const DUPLICATE_WINDOW_MS = 30_000;
 let runtimeLoggingInstalled = false;
@@ -29,6 +31,8 @@ export function getAppLogs(): AppLogEntry[] {
 
 export function clearAppLogs() {
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(DASHBOARD_LOGS_SEEN_KEY);
+    localStorage.removeItem(DASHBOARD_LOG_IDS_SEEN_KEY);
 }
 
 export function installRuntimeLogging() {

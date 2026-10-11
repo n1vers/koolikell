@@ -534,11 +534,10 @@ export default function App() {
             profiles.some(
                 (profile) => profile.id === dateProfileId
             );
-        const profileId =
-            todayNumber <= 5
-                ? (hasDateProfile ? dateProfileId : null) ??
-                    profileByDay[todayNumber] ??
-                    profiles[0]?.id
+        const profileId = hasDateProfile
+            ? dateProfileId
+            : todayNumber <= 5
+                ? profileByDay[todayNumber] ?? profiles[0]?.id
                 : null;
 
         setSchedules(
