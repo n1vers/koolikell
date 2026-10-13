@@ -47,6 +47,23 @@ const clientDistPath = process.env.CLIENT_DIST_PATH;
 const serverLogPath = path.join(process.cwd(), "koolikell-server.log");
 const recentLogEntries = new Map<string, number>();
 const DUPLICATE_LOG_WINDOW_MS = 30_000;
+interface ServerAudioDevice {
+    deviceId: string;
+    label: string;
+}
+
+function getLogCategory(message: string): string {
+    const normalized = message.toLowerCase();
+    if (normalized.includes("playnow") || normalized.includes("play now")) return "playnow";
+    if (normalized.includes("bell") || normalized.includes("kell") || normalized.includes("scheduler") || normalized.includes("profiil")) return "bells";
+    if (normalized.includes("audio") || normalized.includes("heli") || normalized.includes("sound") || normalized.includes("device")) return "audio";
+    if (normalized.includes("setting") || normalized.includes("sead") || normalized.includes("windows") || normalized.includes("pre-bell")) return "settings";
+    if (normalized.includes("http") || normalized.includes("fetch") || normalized.includes("network") || normalized.includes("connection") || normalized.includes("sync")) return "network";
+    return "other";
+}
+
+let serverAudioDevices: ServerAudioDevice[] = [];
+let serverAudioDeviceId = "default";
 
 async function writeServerLog(
     level: "info" | "warn" | "error",
@@ -165,7 +182,7 @@ function getServerConnectionInfo() {
 type PlayNowLoopMode = "off" | "track" | "playlist";
 interface PlayNowState {
     revision: number;
-    action: "play" | "pause" | "stop" | "loop" | "volume" | "select" | "position";
+    action: "play" | "pause" | "stop" | "loop" | "volume" | "select" | "position" | "preview" | "preview-stop";
     selectedFile: string | null;
     playing: boolean;
     loopMode: PlayNowLoopMode;
@@ -173,6 +190,9 @@ interface PlayNowState {
     position: number;
     startedAt: number | null;
     playlist: string[];
+    playbackTarget: "server" | "remote";
+    audioDeviceId: string;
+    previewSoundFile: string | null;
     updatedAt: number;
 }
 
@@ -186,6 +206,9 @@ let playNowState: PlayNowState = {
     position: 0,
     startedAt: null,
     playlist: [],
+    playbackTarget: "server",
+    audioDeviceId: "default",
+    previewSoundFile: null,
     updatedAt: Date.now(),
 };
 
@@ -341,6 +364,26 @@ app.use(
     express.json()
 );
 
+app.use((req, res, next) => {
+    const startedAt = Date.now();
+    res.on("finish", () => {
+        if (req.path === "/api/logs") {
+            return;
+        }
+        const level = res.statusCode >= 500
+            ? "error"
+            : res.statusCode >= 400
+                ? "warn"
+                : "info";
+        void writeServerLog(
+            level,
+            `${req.method} ${req.originalUrl} ${res.statusCode}`,
+            `duration=${Date.now() - startedAt}ms`
+        );
+    });
+    next();
+});
+
 app.get("/api/settings/pins", (_req, res) => {
     const database = new Database(path.join(process.cwd(), "schoolbell.db"));
     const rows = database
@@ -353,8 +396,53 @@ app.get("/api/settings/pins", (_req, res) => {
     });
 });
 
+app.get("/api/logs", async (_req, res) => {
+    try {
+        const content = await fs.readFile(serverLogPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+            if (error.code === "ENOENT") {
+                return "";
+            }
+            throw error;
+        });
+        const logs = content
+            .split(/\r?\n/)
+            .filter(Boolean)
+            .map((line, index) => {
+                const match = line.match(/^(\S+) \[([A-Z]+)\] (.*)$/);
+                const level = match?.[2].toLowerCase();
+                const message = match?.[3] ?? line;
+                const source = message.startsWith("Client(") ||
+                    message.startsWith("Client:")
+                    ? "frontend"
+                    : "backend";
+                return {
+                    id: `${index}-${line}`,
+                    timestamp: match?.[1] ?? new Date().toISOString(),
+                    level: level === "warn" || level === "error" ? level : "info",
+                    source,
+                    category: getLogCategory(message),
+                    message,
+                };
+            });
+        res.json(logs.reverse());
+    } catch (error) {
+        console.error("Failed to read server logs:", error);
+        res.status(500).json({ error: "Serveri logide lugemine ebaõnnestus" });
+    }
+});
+
+app.delete("/api/logs", async (_req, res) => {
+    try {
+        await fs.writeFile(serverLogPath, "", "utf8");
+        res.status(204).end();
+    } catch (error) {
+        console.error("Failed to clear server logs:", error);
+        res.status(500).json({ error: "Serveri logide kustutamine ebaõnnestus" });
+    }
+});
+
 app.post("/api/logs", (req, res) => {
-    const { timestamp, level, message, details } = req.body ?? {};
+    const { timestamp, level, message, details, source } = req.body ?? {};
     if (
         typeof timestamp !== "string" ||
         !["info", "warn", "error"].includes(level) ||
@@ -362,11 +450,62 @@ app.post("/api/logs", (req, res) => {
     ) {
         return res.status(400).json({ error: "Invalid log entry" });
     }
-    void writeServerLog(level, `Client: ${message}`, {
+
+    const sourceLabel = source === "remote"
+        ? "remote"
+        : source === "local"
+            ? "local"
+            : "client";
+    void writeServerLog(level, `Client(${sourceLabel}): ${message}`, {
         timestamp,
         details: typeof details === "string" ? details : undefined,
     });
     res.status(204).end();
+});
+
+app.get("/api/audio/server-devices", (_req, res) => {
+    res.json({
+        devices: serverAudioDevices,
+        selectedDeviceId: serverAudioDeviceId,
+    });
+});
+
+app.put("/api/audio/server-devices", (req, res) => {
+    const devices = Array.isArray(req.body?.devices)
+        ? req.body.devices.filter(
+            (device: unknown): device is ServerAudioDevice =>
+                typeof device === "object" &&
+                device !== null &&
+                typeof (device as ServerAudioDevice).deviceId === "string" &&
+                typeof (device as ServerAudioDevice).label === "string"
+        )
+        : [];
+    serverAudioDevices = devices;
+    res.json({
+        devices: serverAudioDevices,
+        selectedDeviceId: serverAudioDeviceId,
+    });
+});
+
+app.put("/api/audio/server-device", (req, res) => {
+    const deviceId = typeof req.body?.deviceId === "string"
+        ? req.body.deviceId
+        : "";
+    if (
+        deviceId !== "default" &&
+        !serverAudioDevices.some((device) => device.deviceId === deviceId)
+    ) {
+        return res.status(400).json({ error: "Unknown server audio device" });
+    }
+    serverAudioDeviceId = deviceId;
+    playNowState = {
+        ...playNowState,
+        revision: playNowState.revision + 1,
+        action: "select",
+        audioDeviceId: deviceId,
+        updatedAt: Date.now(),
+    };
+    res.json({ selectedDeviceId: serverAudioDeviceId });
 });
 
 app.post("/api/settings/pins/verify", (req, res) => {
@@ -697,15 +836,20 @@ app.put("/api/playnow/state", (req, res) => {
         position,
         startedAt,
         playlist,
+        playbackTarget,
+        audioDeviceId,
         baseRevision,
     } = req.body ?? {};
-    const validAction = ["play", "pause", "stop", "loop", "volume", "select", "position"].includes(action);
+    const validAction = ["play", "pause", "stop", "loop", "volume", "select", "position", "preview", "preview-stop"].includes(action);
     const validLoop = ["off", "track", "playlist"].includes(loopMode);
+    const validPlaybackTarget = ["server", "remote"].includes(playbackTarget);
     if (
         !validAction ||
         (loopMode !== undefined && !validLoop) ||
         (volume !== undefined &&
             (!Number.isFinite(volume) || volume < 0 || volume > 100))
+        || (playbackTarget !== undefined && !validPlaybackTarget)
+        || (audioDeviceId !== undefined && typeof audioDeviceId !== "string")
     ) {
         return res.status(400).json({ error: "Invalid PlayNow state" });
     }
@@ -732,9 +876,11 @@ app.put("/api/playnow/state", (req, res) => {
         revision: playNowState.revision + 1,
         action,
         selectedFile:
-            typeof selectedFile === "string"
-                ? selectedFile
-                : playNowState.selectedFile,
+            selectedFile === null
+                ? null
+                : typeof selectedFile === "string"
+                    ? selectedFile
+                    : playNowState.selectedFile,
         playing: nextPlaying,
         loopMode: loopMode ?? playNowState.loopMode,
         volume: volume ?? playNowState.volume,
@@ -751,6 +897,14 @@ app.put("/api/playnow/state", (req, res) => {
         playlist: Array.isArray(playlist)
             ? playlist.filter((fileName): fileName is string => typeof fileName === "string")
             : playNowState.playlist,
+        playbackTarget: playbackTarget ?? playNowState.playbackTarget,
+        audioDeviceId: audioDeviceId ?? playNowState.audioDeviceId,
+        previewSoundFile:
+            action === "preview-stop"
+                ? null
+                : typeof req.body?.previewSoundFile === "string"
+                    ? req.body.previewSoundFile
+                    : playNowState.previewSoundFile,
         updatedAt: Date.now(),
     };
     res.json(playNowState);

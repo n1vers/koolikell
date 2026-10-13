@@ -196,11 +196,22 @@ async function checkBell() {
         const disabledAt = Number(
             localStorage.getItem(SCHEDULER_DISABLED_AT_KEY) ?? "0"
         );
+        const eventStartedAt = new Date(now);
+        const [eventHours, eventMinutesOfHour] = event.eventTime
+            .split(":")
+            .map(Number);
+        eventStartedAt.setHours(
+            eventHours,
+            eventMinutesOfHour,
+            0,
+            0
+        );
         if (
             disabledAt > 0 &&
             disabledAt < now.getTime() &&
             now.getTime() - disabledAt <= 24 * 60 * 60 * 1000 &&
-            schedulerStartedAt > disabledAt
+            schedulerStartedAt > disabledAt &&
+            schedulerStartedAt > eventStartedAt.getTime()
         ) {
             lastEventKey = eventKey;
             localStorage.removeItem(SCHEDULER_DISABLED_AT_KEY);

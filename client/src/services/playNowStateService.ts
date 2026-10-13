@@ -1,9 +1,10 @@
 import { API_URL } from "../api/apiBase";
 
 export type PlayNowLoopMode = "off" | "track" | "playlist";
+export type PlayNowPlaybackTarget = "server" | "remote";
 export interface PlayNowState {
     revision: number;
-    action: "play" | "pause" | "stop" | "loop" | "volume" | "select" | "position";
+    action: "play" | "pause" | "stop" | "loop" | "volume" | "select" | "position" | "preview" | "preview-stop";
     selectedFile: string | null;
     playing: boolean;
     loopMode: PlayNowLoopMode;
@@ -11,6 +12,9 @@ export interface PlayNowState {
     position: number;
     startedAt: number | null;
     playlist: string[];
+    playbackTarget: PlayNowPlaybackTarget;
+    audioDeviceId: string;
+    previewSoundFile: string | null;
     updatedAt: number;
 }
 

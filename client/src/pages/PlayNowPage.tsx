@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { setAudioOutputDevice } from "../services/bellAudio";
-import { onAudioDeviceChange } from "../services/audioService";
+import { onAudioDeviceChange, saveAudioDevice } from "../services/audioService";
 import {
     deletePlayNowTrack,
     getPlayNowTrackUrl,
@@ -8,11 +8,14 @@ import {
     uploadPlayNowTrack,
     type PlayNowTrack,
 } from "../services/playNowService";
+import { getSoundUrl } from "../services/soundService";
 import {
     getPlayNowState,
     updatePlayNowState,
+    type PlayNowPlaybackTarget,
     type PlayNowLoopMode,
 } from "../services/playNowStateService";
+import { writeAppLog } from "../services/logService";
 
 // ============================================
 // ICONS
@@ -82,6 +85,8 @@ export default function PlayNowPage() {
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [loopMode, setLoopMode] = useState<PlayNowLoopMode>("off");
+    const [playbackTarget, setPlaybackTarget] =
+        useState<PlayNowPlaybackTarget>("server");
     const [volume, setVolume] = useState(() => {
         const savedVolume = Number(
             localStorage.getItem("schoolbell-playnow-volume")
@@ -109,6 +114,7 @@ export default function PlayNowPage() {
     const [isDragging, setIsDragging] = useState(false);
     const [draggedFile, setDraggedFile] = useState<string | null>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
+    const previewAudioRef = useRef<HTMLAudioElement | null>(null);
     const volumeRef = useRef(volume);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const lastStateRevision = useRef(0);
@@ -129,6 +135,44 @@ export default function PlayNowPage() {
         selectedFile: null as string | null,
     });
     const isLocalPlayer = Boolean(window.electronAPI);
+    const isPlaybackClient =
+        playbackTarget === (isLocalPlayer ? "server" : "remote");
+
+    function stopPreviewAudio() {
+        if (previewAudioRef.current) {
+            previewAudioRef.current.pause();
+            previewAudioRef.current.currentTime = 0;
+            previewAudioRef.current = null;
+        }
+    }
+
+    function playPreviewAudio(fileName: string) {
+        stopPreviewAudio();
+        const audio = new Audio(getSoundUrl(fileName));
+        previewAudioRef.current = audio;
+        audio.volume = volumeRef.current / 100;
+        audio.onended = () => {
+            if (previewAudioRef.current === audio) {
+                previewAudioRef.current = null;
+            }
+        };
+        audio.onerror = () => {
+            if (previewAudioRef.current === audio) {
+                previewAudioRef.current = null;
+            }
+        };
+        void setAudioOutputDevice(audio)
+            .catch((error) => {
+                console.error("Failed to select preview audio device:", error);
+            })
+            .then(() => audio.play())
+            .catch((error) => {
+                console.error("Failed to play preview audio:", error);
+                if (previewAudioRef.current === audio) {
+                    previewAudioRef.current = null;
+                }
+            });
+    }
 
     useEffect(() => {
         playingRef.current = playing;
@@ -148,6 +192,14 @@ export default function PlayNowPage() {
     function sendState(
         state: Parameters<typeof updatePlayNowState>[0]
     ) {
+        if (state.action !== "position") {
+            writeAppLog("info", `PlayNow command queued: ${state.action}`, {
+                selectedFile: state.selectedFile ?? selectedFile,
+                playbackTarget,
+                isPlaybackClient,
+                hasElectronApi: Boolean(window.electronAPI),
+            });
+        }
         if (state.action === "position") {
             if (latestPositionRequest.current) {
                 return latestPositionRequest.current;
@@ -164,6 +216,7 @@ export default function PlayNowPage() {
                     return nextState;
                 })
                 .catch((commandError: unknown) => {
+                    writeAppLog("error", "PlayNow position command failed", commandError);
                     setError(
                         commandError instanceof Error
                             ? commandError.message
@@ -185,12 +238,23 @@ export default function PlayNowPage() {
                     await latestPositionRequest.current;
                 }
                 const nextState = await updatePlayNowState(state);
+                if (state.action !== "position") {
+                    writeAppLog("info", `PlayNow command accepted: ${state.action}`, {
+                        revision: nextState.revision,
+                        action: nextState.action,
+                        selectedFile: nextState.selectedFile,
+                        playing: nextState.playing,
+                        playbackTarget: nextState.playbackTarget,
+                        updatedAt: nextState.updatedAt,
+                    });
+                }
                 lastStateRevision.current = Math.max(
                     lastStateRevision.current,
                     nextState.revision
                 );
             })
             .catch((commandError: unknown) => {
+                writeAppLog("error", `PlayNow command failed: ${state.action}`, commandError);
                 setError(
                     commandError instanceof Error
                         ? commandError.message
@@ -242,6 +306,7 @@ export default function PlayNowPage() {
                 setLoading(false);
             }
         } catch (loadError) {
+            writeAppLog("error", "PlayNow tracks loading failed", loadError);
             setError(
                 loadError instanceof Error
                     ? loadError.message
@@ -276,6 +341,7 @@ export default function PlayNowPage() {
 
     function startSelectedTrack() {
         if (!selectedFile) {
+            writeAppLog("warn", "PlayNow play requested without selected track");
             return;
         }
 
@@ -315,14 +381,16 @@ export default function PlayNowPage() {
                     playlistRef.current = state.playlist;
                     setTracks((current) => orderTracks(current, state.playlist));
                 }
-                if (state.selectedFile) {
-                    setSelectedFile(state.selectedFile);
-                }
+                setSelectedFile(state.selectedFile);
                 setLoopMode(state.loopMode);
                 loopModeRef.current = state.loopMode;
                 setVolume(state.volume);
                 volumeRef.current = state.volume;
-                if (!isLocalPlayer) {
+                if (isLocalPlayer && state.audioDeviceId) {
+                    saveAudioDevice(state.audioDeviceId);
+                }
+                setPlaybackTarget(state.playbackTarget);
+                if (!isPlaybackClient) {
                     const wasPlaying = remoteClockRef.current.playing;
                     const wasSelectedFile = remoteClockRef.current.selectedFile;
                     const isNewState = state.revision > lastStateRevision.current;
@@ -355,7 +423,7 @@ export default function PlayNowPage() {
                 }
                 const localAudio = audioRef.current;
                 const localPlaybackMismatch =
-                    isLocalPlayer &&
+                    isPlaybackClient &&
                     Boolean(localAudio) &&
                     ((state.action === "pause" || state.action === "stop") &&
                         !localAudio?.paused ||
@@ -371,8 +439,25 @@ export default function PlayNowPage() {
                     lastStateRevision.current,
                     state.revision
                 );
-                if (isLocalPlayer) {
-                    if (state.action === "play" && state.selectedFile) {
+                if (isPlaybackClient) {
+                    if (
+                        state.action !== "position" &&
+                        state.revision > lastStateRevision.current
+                    ) {
+                        writeAppLog("info", `PlayNow playback command received: ${state.action}`, {
+                            revision: state.revision,
+                            selectedFile: state.selectedFile,
+                            playing: state.playing,
+                            playbackTarget: state.playbackTarget,
+                            isLocalPlayer,
+                            hasElectronApi: Boolean(window.electronAPI),
+                        });
+                    }
+                    if (state.action === "preview" && state.previewSoundFile) {
+                        playPreviewAudio(state.previewSoundFile);
+                    } else if (state.action === "preview-stop") {
+                        stopPreviewAudio();
+                    } else if (state.action === "play" && state.selectedFile) {
                         if (
                             audioRef.current &&
                             audioRef.current.dataset.fileName === state.selectedFile
@@ -417,6 +502,7 @@ export default function PlayNowPage() {
                     setPaused(!state.playing);
                 }
             } catch (syncError) {
+                writeAppLog("error", "PlayNow state sync failed", syncError);
                 if (
                     !(syncError instanceof Error) ||
                     !syncError.message.includes("(HTTP 404)")
@@ -432,10 +518,10 @@ export default function PlayNowPage() {
         void syncState();
         const timer = window.setInterval(() => void syncState(), 1000);
         return () => window.clearInterval(timer);
-    }, [duration, isLocalPlayer]);
+    }, [duration, isPlaybackClient]);
 
     useEffect(() => {
-        if (isLocalPlayer) {
+        if (isPlaybackClient) {
             return;
         }
 
@@ -449,10 +535,10 @@ export default function PlayNowPage() {
         }, 100);
 
         return () => window.clearInterval(timer);
-    }, [duration, isLocalPlayer]);
+    }, [duration, isPlaybackClient]);
 
     useEffect(() => {
-        if (!isLocalPlayer) {
+        if (!isPlaybackClient) {
             return;
         }
 
@@ -484,10 +570,10 @@ export default function PlayNowPage() {
         }, 1000);
 
         return () => window.clearInterval(timer);
-    }, [isLocalPlayer]);
+    }, [isPlaybackClient]);
 
     useEffect(() => {
-        if (isLocalPlayer || !selectedFile) {
+        if (isPlaybackClient || !selectedFile) {
             return;
         }
 
@@ -498,7 +584,7 @@ export default function PlayNowPage() {
             metadataAudio.onloadedmetadata = null;
             metadataAudio.src = "";
         };
-    }, [isLocalPlayer, selectedFile]);
+    }, [isPlaybackClient, selectedFile]);
 
     function stop(sync = true) {
         playbackGeneration.current += 1;
@@ -523,7 +609,8 @@ export default function PlayNowPage() {
     function play(
         fileName = selectedFile,
         sync = true,
-        startTime = 0
+        startTime = 0,
+        audioUrl = fileName ? getPlayNowTrackUrl(fileName) : ""
     ) {
         if (!fileName) {
             return;
@@ -538,7 +625,7 @@ export default function PlayNowPage() {
                 playlist: playlistRef.current,
             });
         }
-        if (!isLocalPlayer) {
+        if (!isPlaybackClient) {
             setSelectedFile(fileName);
             setPlaying(true);
             setCurrentTime(startTime);
@@ -548,7 +635,7 @@ export default function PlayNowPage() {
         const trackIndex = playlistRef.current.indexOf(fileName);
 
         stop(false);
-        const audio = new Audio(getPlayNowTrackUrl(fileName));
+        const audio = new Audio(audioUrl);
         const generation = ++playbackGeneration.current;
         audio.dataset.fileName = fileName;
         audio.currentTime = startTime;
@@ -589,6 +676,20 @@ export default function PlayNowPage() {
             if (generation !== playbackGeneration.current) {
                 return;
             }
+            writeAppLog("error", "PlayNow audio element error", {
+                fileName,
+                audioUrl,
+                networkState: audio.networkState,
+                readyState: audio.readyState,
+                mediaError: audio.error
+                    ? {
+                        code: audio.error.code,
+                        message: audio.error.message,
+                    }
+                    : null,
+                isLocalPlayer,
+                playbackTarget,
+            });
             setError("PlayNow loo esitamine ebaõnnestus");
             setPlaying(false);
             playingRef.current = false;
@@ -601,10 +702,26 @@ export default function PlayNowPage() {
         setCurrentTime(startTime);
         void setAudioOutputDevice(audio)
             .catch((error) => {
+                writeAppLog("error", "PlayNow audio output device selection failed", error);
                 console.error("Failed to select audio device:", error);
             })
             .then(() => audio.play())
-            .catch(() => {
+            .then(() => {
+                writeAppLog("info", "PlayNow audio.play resolved", {
+                    fileName,
+                    audioUrl,
+                    isLocalPlayer,
+                    playbackTarget,
+                });
+            })
+            .catch((playError: unknown) => {
+                writeAppLog("error", "PlayNow audio.play rejected", {
+                    fileName,
+                    audioUrl,
+                    error: playError instanceof Error ? playError.message : String(playError),
+                    isLocalPlayer,
+                    playbackTarget,
+                });
             if (generation === playbackGeneration.current) {
                 setPlaying(false);
                 playingRef.current = false;
@@ -749,11 +866,30 @@ export default function PlayNowPage() {
 
         stop();
         await deletePlayNowTrack(track.fileName);
-        setTracks((current) =>
-            current.filter((item) => item.fileName !== track.fileName)
+        const remainingTracks = tracks.filter(
+            (item) => item.fileName !== track.fileName
         );
+        const nextSelectedFile =
+            selectedFile === track.fileName
+                ? remainingTracks[0]?.fileName ?? null
+                : selectedFile;
+        playlistRef.current = remainingTracks.map((item) => item.fileName);
+        setTracks(remainingTracks);
         if (selectedFile === track.fileName) {
-            setSelectedFile(null);
+            setSelectedFile(nextSelectedFile);
+            void sendState({
+                action: "select",
+                selectedFile: nextSelectedFile,
+                playing: false,
+                position: 0,
+                startedAt: null,
+                playlist: playlistRef.current,
+            });
+        } else {
+            void sendState({
+                action: "select",
+                playlist: playlistRef.current,
+            });
         }
     }
 
@@ -921,7 +1057,7 @@ export default function PlayNowPage() {
                                 if (audioRef.current) {
                                     audioRef.current.currentTime = value;
                                 }
-                                if (!isLocalPlayer && selectedFile) {
+                                if (!isPlaybackClient && selectedFile) {
                                     void sendState({
                                         action: "position",
                                         selectedFile,

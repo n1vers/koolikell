@@ -10,6 +10,11 @@ import {
 } from "../services/soundService";
 import { setAudioOutputDevice } from "../services/bellAudio";
 import { onAudioDeviceChange } from "../services/audioService";
+import {
+    getPlayNowState,
+    updatePlayNowState,
+    type PlayNowPlaybackTarget,
+} from "../services/playNowStateService";
 
 // ============================================
 // ICONS
@@ -36,7 +41,7 @@ function SpeakerIcon({ className = "h-[20px] w-[20px]" }: { className?: string }
 
 function PlayIcon() {
     return (
-        <svg viewBox="0 0 24 24" fill="currentColor" className="h-[14px] w-[14px]" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor" className="h-[18px] w-[18px]" aria-hidden="true">
             <path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5Z" />
         </svg>
     );
@@ -44,7 +49,7 @@ function PlayIcon() {
 
 function StopIcon() {
     return (
-        <svg viewBox="0 0 24 24" fill="currentColor" className="h-[14px] w-[14px]" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor" className="h-[18px] w-[18px]" aria-hidden="true">
             <rect x="6" y="6" width="12" height="12" rx="2" />
         </svg>
     );
@@ -59,7 +64,7 @@ function UploadIcon() {
             strokeWidth="1.8"
             strokeLinecap="round"
             strokeLinejoin="round"
-            className="h-[22px] w-[22px]"
+            className="h-[42px] w-[42px]"
             aria-hidden="true"
         >
             <path d="M12 16V4" />
@@ -74,7 +79,23 @@ function UploadIcon() {
 // ============================================
 
 const GHOST_BTN =
-    "rounded-[8px] px-[12px] py-[7px] text-[13px] font-medium transition";
+    "h-[44px] rounded-[10px] px-[16px] text-[15px] font-medium transition";
+
+const FREE_SOUND_SITES: [string, string][] = [
+    ["Freesound", "https://freesound.org/"],
+    ["Pixabay", "https://pixabay.com/sound-effects/"],
+    ["Mixkit", "https://mixkit.co/free-sound-effects/"],
+];
+
+// Куда играет звук (переключатель)
+const PLAYBACK_TARGETS: {
+    id: PlayNowPlaybackTarget;
+    label: string;
+    title: string;
+}[] = [
+    { id: "server", label: "Serveris", title: "Serveris" },
+    { id: "remote", label: "Selles arvutis", title: "Selles arvutis (eemalt)" },
+];
 
 export default function SoundsPage() {
     const [sounds, setSounds] = useState<Sound[]>([]);
@@ -85,6 +106,35 @@ export default function SoundsPage() {
     const [editingName, setEditingName] = useState("");
     const [isDragging, setIsDragging] = useState(false);
     const [uploadError, setUploadError] = useState("");
+    const [playbackTarget, setPlaybackTarget] =
+        useState<PlayNowPlaybackTarget>("server");
+
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const soundsRefreshInFlight = useRef(false);
+    const playbackGeneration = useRef(0);
+    const soundNameSaveInFlight = useRef(new Set<number>());
+
+    useEffect(() => {
+        void loadPlaybackSettings();
+    }, []);
+
+    async function loadPlaybackSettings() {
+        try {
+            const state = await getPlayNowState();
+            setPlaybackTarget(state.playbackTarget);
+        } catch (error) {
+            console.error("Failed to load playback settings:", error);
+        }
+    }
+
+    function handlePlaybackTargetChange(target: PlayNowPlaybackTarget) {
+        setPlaybackTarget(target);
+        void updatePlayNowState({
+            action: "select",
+            playbackTarget: target,
+        }).catch((error) => console.error("Failed to save playback target:", error));
+    }
 
     useEffect(() => {
         const unsubscribe = onAudioDeviceChange(() => {
@@ -96,12 +146,6 @@ export default function SoundsPage() {
         });
         return unsubscribe;
     }, []);
-
-    const fileInputRef = useRef<HTMLInputElement | null>(null);
-    const audioRef = useRef<HTMLAudioElement | null>(null);
-    const soundsRefreshInFlight = useRef(false);
-    const playbackGeneration = useRef(0);
-    const soundNameSaveInFlight = useRef(new Set<number>());
 
     // ============================================
     // LOAD SOUNDS
@@ -273,6 +317,16 @@ export default function SoundsPage() {
     function stopAudio() {
         playbackGeneration.current += 1;
 
+        if (playbackTarget === "server") {
+            void updatePlayNowState({
+                action: "preview-stop",
+                playing: false,
+                previewSoundFile: null,
+            }).catch((error) => {
+                console.error("Failed to stop server sound preview:", error);
+            });
+        }
+
         if (audioRef.current) {
             audioRef.current.pause();
             audioRef.current.currentTime = 0;
@@ -285,6 +339,21 @@ export default function SoundsPage() {
     async function playSound(sound: Sound) {
         stopAudio();
         const generation = ++playbackGeneration.current;
+
+        if (playbackTarget === "server") {
+            setPlayingId(sound.id);
+            void updatePlayNowState({
+                action: "preview",
+                previewSoundFile: sound.fileName,
+                playing: true,
+            }).catch((error) => {
+                console.error("Failed to start server sound preview:", error);
+                if (generation === playbackGeneration.current) {
+                    setPlayingId(null);
+                }
+            });
+            return;
+        }
 
         const audio = new Audio(getSoundUrl(sound.fileName));
 
@@ -402,63 +471,71 @@ export default function SoundsPage() {
     // ============================================
 
     return (
-        <div className="ml-[240px] box-border min-h-screen w-[calc(100%_-_240px)] bg-[#f5f7fb] px-[clamp(24px,4vw,64px)] py-[36px] font-['Inter']">
+        <div className="ml-[240px] box-border min-h-screen w-[calc(100%_-_240px)] bg-[#f5f7fb] px-[clamp(24px,4vw,64px)] py-[40px] font-['Inter']">
             <div className="mx-auto w-full max-w-[1040px]">
                 {/* HEADER */}
 
-                <div className="mb-[28px] flex items-start justify-between gap-[24px]">
+                <div className="mb-[32px] flex flex-wrap items-end justify-between gap-[24px]">
                     <div>
-                        <h1 className="m-0 text-[28px] font-semibold leading-tight text-[#202633]">
+                        <h1 className="m-0 text-[32px] font-semibold leading-tight text-[#1b212d]">
                             Helid
                         </h1>
 
-                        <p className="mt-[6px] text-[14px] text-[#7d899d]">
+                        <p className="m-0 mt-[8px] text-[16px] text-[#5b6678]">
                             Koolikellade helide haldamine
-                            {!loading && sounds.length > 0 && (
-                                <span className="ml-[8px] rounded-full bg-[#e8f0fe] px-[8px] py-[2px] text-[12px] font-medium text-[#3f82df]">
-                                    {sounds.length}
-                                </span>
-                            )}
+                            {!loading && sounds.length > 0 && ` · ${sounds.length}`}
                         </p>
                     </div>
 
-                    <button
-                        type="button"
-                        onClick={() => void openSoundsFolder()}
-                        className="h-[40px] rounded-[8px] border border-[#d9dee8] bg-white px-[16px] text-[13px] font-medium text-[#374151] shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition hover:border-[#5798f5] hover:text-[#3f82df]"
-                    >
-                        Ava helide kaust
-                    </button>
-                </div>
+                    <div className="flex items-end gap-[16px]">
+                        {/* PLAYBACK TARGET SWITCH */}
 
-                <div className="mb-[20px] rounded-[10px] border border-[#e2e7ef] bg-[#f8fbff] px-[14px] py-[12px]">
-                    <p className="m-0 text-[13px] font-medium text-[#1f2937]">
-                        Kas otsid uusi heliefekte?
-                    </p>
-                    <p className="m-0 mt-[4px] text-[12px] leading-[18px] text-[#8792a5]">
-                        Tasuta helisid võib leida näiteks nendelt saitidelt:
-                    </p>
-                    <div className="mt-[8px] flex flex-wrap gap-x-[12px] gap-y-[4px] text-[12px]">
-                        {[
-                            ["Freesound", "https://freesound.org/"],
-                            ["Pixabay", "https://pixabay.com/sound-effects/"],
-                            ["Mixkit", "https://mixkit.co/free-sound-effects/"],
-                        ].map(([name, url]) => (
-                            <button
-                                key={url}
-                                type="button"
-                                onClick={() => {
-                                    if (window.electronAPI?.openExternal) {
-                                        void window.electronAPI.openExternal(url);
-                                    } else {
-                                        window.open(url, "_blank", "noopener,noreferrer");
-                                    }
-                                }}
-                                className="border-0 bg-transparent p-0 text-[#3f82df] hover:underline"
+                        <div>
+                            <div
+                                id="playback-target-label"
+                                className="mb-[6px] text-[12px] font-medium uppercase tracking-wide text-[#647085]"
                             >
-                                {name}
-                            </button>
-                        ))}
+                                Esitamise koht
+                            </div>
+
+                            <div
+                                role="radiogroup"
+                                aria-labelledby="playback-target-label"
+                                className="flex rounded-[12px] border border-[#cfd6e2] bg-white p-[4px]"
+                            >
+                                {PLAYBACK_TARGETS.map((target) => {
+                                    const active = target.id === playbackTarget;
+
+                                    return (
+                                        <button
+                                            key={target.id}
+                                            type="button"
+                                            role="radio"
+                                            aria-checked={active}
+                                            title={target.title}
+                                            onClick={() =>
+                                                handlePlaybackTargetChange(target.id)
+                                            }
+                                            className={`h-[40px] rounded-[9px] px-[18px] text-[15px] transition ${
+                                                active
+                                                    ? "bg-[#5798f5] font-semibold text-white shadow-[0_1px_3px_rgba(87,152,245,0.45)]"
+                                                    : "font-medium text-[#5b6678] hover:bg-[#f1f4f8] hover:text-[#1b212d]"
+                                            }`}
+                                        >
+                                            {target.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={() => void openSoundsFolder()}
+                            className="h-[48px] rounded-[10px] border border-[#cfd6e2] bg-white px-[20px] text-[15px] font-medium text-[#1f2937] transition hover:border-[#5798f5] hover:text-[#3f82df]"
+                        >
+                            Ava helide kaust
+                        </button>
                     </div>
                 </div>
 
@@ -467,14 +544,14 @@ export default function SoundsPage() {
                 {uploadError && (
                     <div
                         role="alert"
-                        className="mb-[20px] flex items-start justify-between gap-[12px] rounded-[10px] border border-[#f3b4b4] bg-[#fff5f5] px-[16px] py-[12px] text-[14px] text-[#b42318]"
+                        className="mb-[20px] flex items-start justify-between gap-[12px] rounded-[12px] border border-[#f3b4b4] bg-[#fff5f5] px-[18px] py-[14px] text-[16px] text-[#b42318]"
                     >
                         <span>{uploadError}</span>
 
                         <button
                             type="button"
                             onClick={() => setUploadError("")}
-                            className="shrink-0 text-[18px] leading-none text-[#b42318]/70 transition hover:text-[#b42318]"
+                            className="shrink-0 text-[22px] leading-none text-[#b42318]/70 transition hover:text-[#b42318]"
                             aria-label="Sulge"
                         >
                             ×
@@ -499,60 +576,52 @@ export default function SoundsPage() {
                             openFilePicker();
                         }
                     }}
-                    className={`mb-[28px] box-border flex min-h-[150px] w-full cursor-pointer flex-col items-center justify-center rounded-[14px] border-2 border-dashed px-[24px] py-[24px] text-center outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-[#5798f5]/40 ${
+                    className={`mb-[32px] box-border flex min-h-[260px] w-full cursor-pointer flex-col items-center justify-center gap-[18px] rounded-[20px] border-2 border-dashed px-[32px] py-[44px] text-center outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-[#5798f5]/40 ${
                         isDragging
                             ? "border-[#5798f5] bg-[#eef5ff]"
-                            : "border-[#d3d9e4] bg-white hover:border-[#5798f5] hover:bg-[#fafcff]"
+                            : "border-[#c3cbd9] bg-white hover:border-[#5798f5] hover:bg-[#fafcff]"
                     } ${uploading ? "pointer-events-none opacity-60" : ""}`}
                 >
                     <div
-                        className={`mb-[12px] flex h-[48px] w-[48px] items-center justify-center rounded-[12px] transition ${
+                        className={`flex h-[84px] w-[84px] shrink-0 items-center justify-center rounded-[22px] transition ${
                             isDragging
                                 ? "bg-[#5798f5] text-white"
-                                : "bg-[#eaf2ff] text-[#5798f5]"
+                                : "bg-[#eaf2ff] text-[#3f82df]"
                         }`}
                     >
                         <UploadIcon />
                     </div>
 
-                    {uploading ? (
-                        <>
-                            <div className="text-[15px] font-medium text-[#374151]">
-                                Laadimine...
-                            </div>
-                            <div className="mt-[4px] text-[13px] text-[#8a93a3]">
-                                Palun oodake
-                            </div>
-                        </>
-                    ) : isDragging ? (
-                        <>
-                            <div className="text-[15px] font-semibold text-[#3f82df]">
-                                Laske fail siin lahti
-                            </div>
-                            <div className="mt-[4px] text-[13px] text-[#64748b]">
-                                Fail laaditakse koolikella üles
-                            </div>
-                        </>
-                    ) : (
-                        <>
-                            <div className="text-[15px] font-medium text-[#374151]">
-                                Lohistage helifail siia
-                            </div>
-                            <div className="mt-[4px] text-[13px] text-[#8a93a3]">
-                                või klõpsake faili valimiseks
-                            </div>
-                            <div className="mt-[10px] flex gap-[6px]">
-                                {["MP3", "WAV", "OGG"].map((format) => (
-                                    <span
-                                        key={format}
-                                        className="rounded-[6px] bg-[#f1f4f8] px-[8px] py-[2px] text-[11px] font-medium text-[#8a93a3]"
-                                    >
-                                        {format}
-                                    </span>
-                                ))}
-                            </div>
-                        </>
-                    )}
+                    <div className="[&>div:first-child]:text-[24px] [&>div:last-child]:text-[17px]">
+                        {uploading ? (
+                            <>
+                                <div className="text-[18px] font-semibold text-[#1f2937]">
+                                    Laadimine...
+                                </div>
+                                <div className="mt-[4px] text-[15px] text-[#5b6678]">
+                                    Palun oodake
+                                </div>
+                            </>
+                        ) : isDragging ? (
+                            <>
+                                <div className="text-[18px] font-semibold text-[#3f82df]">
+                                    Laske fail siin lahti
+                                </div>
+                                <div className="mt-[4px] text-[15px] text-[#5b6678]">
+                                    Fail laaditakse koolikella üles
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div className="text-[18px] font-semibold text-[#1f2937]">
+                                    Lohistage helifail siia
+                                </div>
+                                <div className="mt-[4px] text-[15px] text-[#5b6678]">
+                                    või klõpsake faili valimiseks · MP3, WAV, OGG
+                                </div>
+                            </>
+                        )}
+                    </div>
                 </div>
 
                 <input
@@ -566,25 +635,25 @@ export default function SoundsPage() {
                 {/* SOUNDS */}
 
                 {loading ? (
-                    <div className="rounded-[14px] bg-white p-[30px] text-[14px] text-[#7d899d] shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+                    <div className="rounded-[16px] bg-white p-[32px] text-[16px] text-[#5b6678] shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
                         Laadimine...
                     </div>
                 ) : sounds.length === 0 ? (
-                    <div className="rounded-[14px] bg-white px-[24px] py-[48px] text-center shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-                        <div className="mx-auto mb-[12px] flex h-[56px] w-[56px] items-center justify-center rounded-[14px] bg-[#f1f4f8] text-[#9aa5b8]">
-                            <SpeakerIcon className="h-[26px] w-[26px]" />
+                    <div className="rounded-[16px] bg-white px-[24px] py-[56px] text-center shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+                        <div className="mx-auto mb-[14px] flex h-[64px] w-[64px] items-center justify-center rounded-[16px] bg-[#f1f4f8] text-[#7d899d]">
+                            <SpeakerIcon className="h-[30px] w-[30px]" />
                         </div>
 
-                        <div className="text-[16px] font-medium text-[#374151]">
+                        <div className="text-[18px] font-semibold text-[#1f2937]">
                             Helisid veel pole
                         </div>
 
-                        <div className="mt-[6px] text-[14px] text-[#7d899d]">
+                        <div className="mt-[8px] text-[16px] text-[#5b6678]">
                             Lohistage esimene helifail ülalolevasse alasse
                         </div>
                     </div>
                 ) : (
-                    <div className="space-y-[8px]">
+                    <div className="space-y-[12px]">
                         {sounds.map((sound) => {
                             const isPlaying = playingId === sound.id;
                             const isEditing = editingId === sound.id;
@@ -592,8 +661,10 @@ export default function SoundsPage() {
                             return (
                                 <div
                                     key={sound.id}
-                                    className={`flex items-center rounded-[12px] bg-white px-[18px] py-[12px] shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)] ${
-                                        isPlaying ? "ring-1 ring-[#5798f5]/50" : ""
+                                    className={`flex min-h-[80px] items-center rounded-[16px] bg-white px-[20px] py-[14px] shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition ${
+                                        isPlaying
+                                            ? "ring-2 ring-[#5798f5]/60"
+                                            : "hover:shadow-[0_2px_10px_rgba(0,0,0,0.07)]"
                                     }`}
                                 >
                                     {/* PLAY */}
@@ -603,12 +674,12 @@ export default function SoundsPage() {
                                         onClick={() =>
                                             isPlaying
                                                 ? stopAudio()
-                                                : playSound(sound)
+                                                : void playSound(sound)
                                         }
-                                        className={`mr-[16px] flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[10px] transition ${
+                                        className={`mr-[18px] flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[12px] transition ${
                                             isPlaying
                                                 ? "bg-[#5798f5] text-white hover:bg-[#4688e7]"
-                                                : "bg-[#eaf2ff] text-[#5798f5] hover:bg-[#dbe9ff]"
+                                                : "bg-[#eaf2ff] text-[#3f82df] hover:bg-[#dbe9ff]"
                                         }`}
                                         title={isPlaying ? "Peata" : "Kuula"}
                                         aria-label={isPlaying ? "Peata" : "Kuula"}
@@ -651,15 +722,15 @@ export default function SoundsPage() {
 
                                                     void saveEditing(sound);
                                                 }}
-                                                className="h-[36px] w-full rounded-[8px] border border-[#d9dee8] bg-white px-[10px] text-[14px] text-[#1f2937] outline-none transition focus:border-[#5798f5] focus:ring-2 focus:ring-[#5798f5]/20"
+                                                className="h-[48px] w-full rounded-[10px] border border-[#c3cbd9] bg-white px-[14px] text-[17px] text-[#1f2937] outline-none transition focus:border-[#5798f5] focus:ring-2 focus:ring-[#5798f5]/25"
                                             />
                                         ) : (
                                             <>
-                                                <div className="truncate text-[15px] font-medium text-[#1f2937]">
+                                                <div className="truncate text-[18px] font-semibold text-[#1b212d]">
                                                     {sound.name}
                                                 </div>
 
-                                                <div className="mt-[2px] truncate text-[12px] text-[#8a93a3]">
+                                                <div className="mt-[3px] truncate text-[14px] text-[#647085]">
                                                     {sound.fileName}
                                                 </div>
                                             </>
@@ -668,7 +739,7 @@ export default function SoundsPage() {
 
                                     {/* ACTIONS */}
 
-                                    <div className="ml-[20px] flex shrink-0 items-center gap-[4px]">
+                                    <div className="ml-[20px] flex shrink-0 items-center gap-[8px]">
                                         {isEditing ? (
                                             <>
                                                 <button
@@ -684,7 +755,7 @@ export default function SoundsPage() {
                                                     type="button"
                                                     onClick={cancelEditing}
                                                     data-edit-action="cancel"
-                                                    className={`${GHOST_BTN} text-[#6b7280] hover:bg-[#f3f4f6]`}
+                                                    className={`${GHOST_BTN} text-[#4b5563] hover:bg-[#f1f4f8]`}
                                                 >
                                                     Tühista
                                                 </button>
@@ -694,7 +765,7 @@ export default function SoundsPage() {
                                                 <button
                                                     type="button"
                                                     onClick={() => startEditing(sound)}
-                                                    className={`${GHOST_BTN} text-[#64748b] hover:bg-[#f3f4f6] hover:text-[#334155]`}
+                                                    className={`${GHOST_BTN} text-[#374151] hover:bg-[#f1f4f8]`}
                                                 >
                                                     Muuda
                                                 </button>
@@ -702,7 +773,7 @@ export default function SoundsPage() {
                                                 <button
                                                     type="button"
                                                     onClick={() => void handleDelete(sound)}
-                                                    className={`${GHOST_BTN} text-[#8994a6] hover:bg-[#fef2f2] hover:text-[#dc2626]`}
+                                                    className={`${GHOST_BTN} text-[#b42318] hover:bg-[#fef2f2]`}
                                                 >
                                                     Kustuta
                                                 </button>
@@ -714,6 +785,30 @@ export default function SoundsPage() {
                         })}
                     </div>
                 )}
+
+                {/* FREE SOUNDS HINT */}
+
+                <p className="m-0 mt-[28px] text-[15px] text-[#5b6678]">
+                    Uusi helisid otsid? Tasuta helisid leiab saitidelt:{" "}
+                    {FREE_SOUND_SITES.map(([name, url], index) => (
+                        <span key={url}>
+                            {index > 0 && " · "}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (window.electronAPI?.openExternal) {
+                                        void window.electronAPI.openExternal(url);
+                                    } else {
+                                        window.open(url, "_blank", "noopener,noreferrer");
+                                    }
+                                }}
+                                className="border-0 bg-transparent p-0 text-[15px] font-medium text-[#3f82df] underline-offset-[3px] hover:underline"
+                            >
+                                {name}
+                            </button>
+                        </span>
+                    ))}
+                </p>
             </div>
         </div>
     );

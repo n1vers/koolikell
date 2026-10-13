@@ -1,7 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-    clearAppLogs,
-    getAppLogs,
+    clearServerLogs,
+    getServerLogs,
+    getLogCategory,
+    type AppLogCategory,
     type AppLogEntry,
 } from "../services/logService";
 
@@ -30,26 +32,73 @@ const LEVEL_STYLES: Record<
 const HEADER_BTN =
     "h-[36px] rounded-[8px] border border-[#d9dee8] bg-white px-[14px] text-[13px] font-medium text-[#647085] transition hover:border-[#5798f5] hover:text-[#3f82df] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-[#d9dee8] disabled:hover:text-[#647085]";
 
+const CATEGORY_LABELS: Record<AppLogCategory, string> = {
+    playnow: "PlayNow",
+    bells: "Kellad",
+    audio: "Audio",
+    settings: "Seaded",
+    network: "Võrk/API",
+    other: "Muu",
+};
+
 export default function AppLogs() {
-    const [logs, setLogs] = useState<AppLogEntry[]>(getAppLogs);
+    const [logs, setLogs] = useState<AppLogEntry[]>([]);
+    const [error, setError] = useState("");
     const [filter, setFilter] = useState<"all" | AppLogEntry["level"]>("all");
+    const [sourceFilter, setSourceFilter] = useState<
+        "all" | "backend" | "frontend"
+    >("all");
+    const [categoryFilter, setCategoryFilter] = useState<
+        "all" | AppLogCategory
+    >("all");
+
+    useEffect(() => {
+        void handleRefresh();
+    }, []);
 
     const counts = useMemo(() => ({
         info: logs.filter((log) => log.level === "info").length,
         warn: logs.filter((log) => log.level === "warn").length,
         error: logs.filter((log) => log.level === "error").length,
     }), [logs]);
-    const visibleLogs = filter === "all"
-        ? logs
-        : logs.filter((log) => log.level === filter);
+    const visibleLogs = logs.filter((log) =>
+        (filter === "all" || log.level === filter) &&
+        (sourceFilter === "all" || (log.source ?? "backend") === sourceFilter) &&
+        (categoryFilter === "all" ||
+            (log.category ?? getLogCategory(log.message)) === categoryFilter)
+    );
+    const categoryCounts = (Object.keys(CATEGORY_LABELS) as AppLogCategory[]).map(
+        (category) => [
+            category,
+            CATEGORY_LABELS[category],
+            logs.filter(
+                (log) =>
+                    (log.category ?? getLogCategory(log.message)) === category
+            ).length,
+        ] as const
+    );
 
     function handleClear() {
-        clearAppLogs();
-        setLogs([]);
+        void clearServerLogs()
+            .then(() => setLogs([]))
+            .catch((clearError: unknown) => setError(
+                clearError instanceof Error
+                    ? clearError.message
+                    : "Serveri logide kustutamine ebaõnnestus"
+            ));
     }
 
-    function handleRefresh() {
-        setLogs(getAppLogs());
+    async function handleRefresh() {
+        try {
+            setError("");
+            setLogs(await getServerLogs());
+        } catch (refreshError: unknown) {
+            setError(
+                refreshError instanceof Error
+                    ? refreshError.message
+                    : "Serveri logide lugemine ebaõnnestus"
+            );
+        }
     }
 
     return (
@@ -114,6 +163,51 @@ export default function AppLogs() {
                     </button>
                 ))}
             </div>
+
+            <div className="mt-[10px] flex flex-wrap gap-[8px]">
+                {([
+                    ["all", "Kõik"],
+                    ["backend", "Backend"],
+                    ["frontend", "Frontend"],
+                ] as const).map(([value, label]) => (
+                    <button
+                        key={value}
+                        type="button"
+                        onClick={() => setSourceFilter(value)}
+                        className={`rounded-full border px-[10px] py-[5px] text-[12px] font-medium ${
+                            sourceFilter === value
+                                ? "border-[#5798f5] bg-[#eaf2ff] text-[#3f82df]"
+                                : "border-[#d9dee8] bg-white text-[#647085]"
+                        }`}
+                    >
+                        {label}
+                    </button>
+                ))}
+            </div>
+
+            <div className="mt-[10px] flex flex-wrap gap-[8px]">
+                {([
+                    ["all", "Kõik", logs.length],
+                    ...categoryCounts,
+                ] as const).map(([value, label, count]) => (
+                    <button
+                        key={value}
+                        type="button"
+                        onClick={() => setCategoryFilter(value as "all" | AppLogCategory)}
+                        className={`rounded-full border px-[10px] py-[5px] text-[12px] font-medium ${
+                            categoryFilter === value
+                                ? "border-[#5798f5] bg-[#eaf2ff] text-[#3f82df]"
+                                : "border-[#d9dee8] bg-white text-[#647085]"
+                        }`}
+                    >
+                        {label} · {count}
+                    </button>
+                ))}
+            </div>
+
+            {error && (
+                <p className="m-0 mt-[12px] text-[13px] text-[#c24141]">{error}</p>
+            )}
 
             {/* LIST */}
 

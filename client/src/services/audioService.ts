@@ -3,6 +3,11 @@ export interface AudioOutputDevice {
     label: string;
 }
 
+export interface ServerAudioDevices {
+    devices: AudioOutputDevice[];
+    selectedDeviceId: string;
+}
+
 const STORAGE_DEVICE =
     "schoolbell.audio.device";
 
@@ -49,6 +54,39 @@ export function saveAudioDevice(
             detail: deviceId,
         })
     );
+}
+
+export async function getServerAudioDevices(): Promise<ServerAudioDevices> {
+    const response = await fetch("/api/audio/server-devices");
+    if (!response.ok) {
+        throw new Error("Serveri heliväljundite lugemine ebaõnnestus");
+    }
+    return response.json() as Promise<ServerAudioDevices>;
+}
+
+export async function publishServerAudioDevices(
+    devices: AudioOutputDevice[]
+): Promise<ServerAudioDevices> {
+    const response = await fetch("/api/audio/server-devices", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ devices }),
+    });
+    if (!response.ok) {
+        throw new Error("Serveri heliväljundite avaldamine ebaõnnestus");
+    }
+    return response.json() as Promise<ServerAudioDevices>;
+}
+
+export async function saveServerAudioDevice(deviceId: string): Promise<void> {
+    const response = await fetch("/api/audio/server-device", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceId }),
+    });
+    if (!response.ok) {
+        throw new Error("Serveri heliväljundi salvestamine ebaõnnestus");
+    }
 }
 
 export function onAudioDeviceChange(

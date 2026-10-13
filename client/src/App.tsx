@@ -21,6 +21,7 @@ import {
 } from "./services/bellScheduler";
 import { installRuntimeLogging, writeAppLog } from "./services/logService";
 import { playBell } from "./services/bellAudio";
+import { getAudioOutputDevices, publishServerAudioDevices } from "./services/audioService";
 
 import {
     getProfiles,
@@ -191,6 +192,13 @@ export default function App() {
             screen: `${window.screen.width}x${window.screen.height}`,
             electron: Boolean(window.electronAPI),
         });
+        if (window.electronAPI) {
+            void getAudioOutputDevices()
+                .then(publishServerAudioDevices)
+                .catch((error: unknown) => {
+                    console.error("Failed to publish server audio devices:", error);
+                });
+        }
         void loadData(true);
 
     }, []);
@@ -480,6 +488,37 @@ export default function App() {
             window.clearInterval(syncedSettingsTimer);
         };
     }, [currentPage]);
+
+    useEffect(() => {
+        if (!window.electronAPI) {
+            return;
+        }
+
+        let disposed = false;
+        const syncWindowsSettings = async () => {
+            try {
+                const settings = await getSyncedSettings();
+                if (!disposed) {
+                    setWindowsSettings(settings.windows);
+                    await window.electronAPI?.setWindowsSettings(settings.windows);
+                }
+            } catch (syncError) {
+                if (!disposed) {
+                    writeAppLog("error", "Windows settings background sync failed", syncError);
+                }
+            }
+        };
+
+        void syncWindowsSettings();
+        const timer = window.setInterval(() => {
+            void syncWindowsSettings();
+        }, 3000);
+
+        return () => {
+            disposed = true;
+            window.clearInterval(timer);
+        };
+    }, []);
 
     async function updateWindowsSetting(
         key: keyof WindowsSettings,
@@ -1482,6 +1521,13 @@ export default function App() {
                             (profile) =>
                                 profile.id === schedules[0]?.profileId
                         )?.lessonDurationMinutes ?? 45
+                    }
+
+                    preBellMinutes={
+                        profiles.find(
+                            (profile) =>
+                                profile.id === schedules[0]?.profileId
+                        )?.preBellMinutes ?? 0
                     }
 
                     nextSchedule={

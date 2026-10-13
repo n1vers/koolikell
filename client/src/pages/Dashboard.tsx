@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { getNtpServer } from "../api/api";
-import { getAppLogs, type AppLogEntry } from "../services/logService";
+import { getServerLogs, type AppLogEntry } from "../services/logService";
 import type { Schedule } from "../types";
 
 interface DashboardProps {
     schedules: Schedule[];
 
     lessonDurationMinutes: number;
+
+    preBellMinutes: number;
 
     nextSchedule?: Schedule | null;
 
@@ -36,6 +38,27 @@ function getTimeUntilNextBell(schedule: Schedule | null, now: Date): string {
     }
 
     const totalSeconds = Math.ceil((next.getTime() - now.getTime()) / 1000);
+    return `${String(Math.floor(totalSeconds / 60)).padStart(2, "0")}:${String(totalSeconds % 60).padStart(2, "0")}`;
+}
+
+function getTimeUntilPreBell(
+    schedule: Schedule | null,
+    preBellMinutes: number,
+    now: Date
+): string {
+    if (!schedule?.preBellEnabled || preBellMinutes <= 0) {
+        return "--:--";
+    }
+
+    const [hours, minutes] = schedule.time.split(":").map(Number);
+    const preBell = new Date(now);
+    preBell.setHours(hours, minutes - preBellMinutes, 0, 0);
+
+    if (preBell.getTime() <= now.getTime()) {
+        return "00:00";
+    }
+
+    const totalSeconds = Math.ceil((preBell.getTime() - now.getTime()) / 1000);
     return `${String(Math.floor(totalSeconds / 60)).padStart(2, "0")}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
@@ -162,13 +185,13 @@ function readSeenDashboardLogIds() {
 }
 
 function getDashboardLogKey(log: AppLogEntry) {
-    return log.id ||
-        `${log.timestamp}|${log.level}|${log.message}|${log.details ?? ""}`;
+    return `${log.timestamp}|${log.level}|${log.message}|${log.details ?? ""}`;
 }
 
 export default function Dashboard({
     schedules,
     lessonDurationMinutes,
+    preBellMinutes,
     automaticEnabled,
     onToggleAutomatic,
     onEditSchedule,
@@ -225,20 +248,34 @@ export default function Dashboard({
     }
 
     useEffect(() => {
-        const refreshLogs = () => {
-            setImportantLogs(
-                getAppLogs().filter(
-                    (log) =>
-                        log.level !== "info" &&
+        let disposed = false;
+        const refreshLogs = async () => {
+            try {
+                const logs = await getServerLogs();
+                if (disposed) {
+                    return;
+                }
+                setImportantLogs(
+                    logs.filter(
+                        (log) =>
+                            log.level !== "info" &&
                             !seenDashboardLogIds.current.has(getDashboardLogKey(log)) &&
                             new Date(log.timestamp).getTime() >
                                 seenDashboardLogsAt.current
-                )
-            );
+                    )
+                );
+            } catch {
+                if (!disposed) {
+                    setImportantLogs([]);
+                }
+            }
         };
-        refreshLogs();
-        const timer = window.setInterval(refreshLogs, 5000);
-        return () => window.clearInterval(timer);
+        void refreshLogs();
+        const timer = window.setInterval(() => void refreshLogs(), 5000);
+        return () => {
+            disposed = true;
+            window.clearInterval(timer);
+        };
     }, []);
 
     useEffect(() => {
@@ -319,12 +356,24 @@ export default function Dashboard({
                     )}
 
                     {importantLogs.length > 0 && (
-                        <div className="mt-[16px] flex items-center justify-between gap-[12px] rounded-[10px] border border-[#f1d39a] bg-[#fff9ed] px-[14px] py-[12px]">
+                        <div className={`mt-[16px] flex items-center justify-between gap-[12px] rounded-[10px] border px-[14px] py-[12px] ${
+                            importantLogs[0].level === "error"
+                                ? "border-[#f3b4b4] bg-[#fff1f1]"
+                                : "border-[#f1d39a] bg-[#fff9ed]"
+                        }`}>
                             <div className="min-w-0">
-                                <p className="m-0 text-[13px] font-semibold text-[#8a5a00]">
+                                <p className={`m-0 text-[13px] font-semibold ${
+                                    importantLogs[0].level === "error"
+                                        ? "text-[#b42318]"
+                                        : "text-[#8a5a00]"
+                                }`}>
                                     {importantLogs.length} olulist logi: {importantLogs[0].level.toUpperCase()}
                                 </p>
-                                <p className="m-0 mt-[3px] truncate text-[12px] text-[#8a6b2d]">
+                                <p className={`m-0 mt-[3px] truncate text-[12px] ${
+                                    importantLogs[0].level === "error"
+                                        ? "text-[#b42318]"
+                                        : "text-[#8a6b2d]"
+                                }`}>
                                     {importantLogs[0].message}
                                 </p>
                             </div>
@@ -355,7 +404,11 @@ export default function Dashboard({
                                     setImportantLogs([]);
                                     onOpenLogs();
                                 }}
-                                className="shrink-0 rounded-[8px] bg-[#e0a43a] px-[12px] py-[8px] text-[12px] font-medium text-white"
+                                className={`shrink-0 rounded-[8px] px-[12px] py-[8px] text-[12px] font-medium text-white ${
+                                    importantLogs[0].level === "error"
+                                        ? "bg-[#d64545]"
+                                        : "bg-[#e0a43a]"
+                                }`}
                             >
                                 Ava logid
                             </button>
@@ -417,6 +470,20 @@ export default function Dashboard({
                                 <p className="m-0 mt-[4px] text-[20px] font-medium leading-[40px] text-[#3f82df]">
                                     {getTimeUntilNextBell(
                                         upcomingSchedule,
+                                        now
+                                    )}
+                                </p>
+                            </div>
+
+                            <div>
+                                <p className="m-0 text-[13px] text-[#647085]">
+                                    Eelhelinani
+                                </p>
+
+                                <p className="m-0 mt-[4px] text-[20px] font-medium leading-[40px] tabular-nums text-[#b7791f]">
+                                    {getTimeUntilPreBell(
+                                        upcomingSchedule,
+                                        preBellMinutes,
                                         now
                                     )}
                                 </p>

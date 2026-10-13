@@ -2,27 +2,28 @@ import { useEffect, useState } from "react";
 
 import {
     getAudioOutputDevices,
-    getSavedAudioDevice,
-    saveAudioDevice,
     getVolume,
     saveVolume,
+    getServerAudioDevices,
+    publishServerAudioDevices,
+    saveServerAudioDevice,
     type AudioOutputDevice,
 } from "../services/audioService";
 import { getSyncedSettings, updateSyncedSettings } from "../api/api";
+import {
+    getPlayNowState,
+} from "../services/playNowStateService";
 
 export default function AudioSettings() {
-    const [devices, setDevices] = useState<AudioOutputDevice[]>([]);
-
-    const [selectedDevice, setSelectedDevice] = useState(
-        getSavedAudioDevice()
-    );
+    const [serverDevices, setServerDevices] = useState<AudioOutputDevice[]>([]);
+    const [serverDevice, setServerDevice] = useState("default");
 
     const [volume, setVolume] = useState(getVolume());
 
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        void loadDevices();
+        void loadServerDevice();
         const syncVolume = () =>
             getSyncedSettings()
                 .then((settings) => {
@@ -35,24 +36,33 @@ export default function AudioSettings() {
         return () => window.clearInterval(timer);
     }, []);
 
-    async function loadDevices() {
+    async function loadServerDevice() {
         try {
-            setLoading(true);
-
-            const result = await getAudioOutputDevices();
-
-            setDevices(result);
-        } catch (error) {
-            console.error("Failed to load audio devices:", error);
-        } finally {
+            if (window.electronAPI) {
+                const localDevices = await getAudioOutputDevices();
+                const published = await publishServerAudioDevices(localDevices);
+                setServerDevices(published.devices);
+                setServerDevice(published.selectedDeviceId);
+                setLoading(false);
+                return;
+            }
+            const [state, serverAudio] = await Promise.all([
+                getPlayNowState(),
+                getServerAudioDevices(),
+            ]);
+            setServerDevices(serverAudio.devices);
+            setServerDevice(state.audioDeviceId || serverAudio.selectedDeviceId);
             setLoading(false);
+        } catch (error) {
+            console.error("Failed to load server audio device:", error);
         }
     }
 
-    function handleDeviceChange(deviceId: string) {
-        setSelectedDevice(deviceId);
-
-        saveAudioDevice(deviceId);
+    function handleServerDeviceChange(deviceId: string) {
+        setServerDevice(deviceId);
+        void saveServerAudioDevice(deviceId).catch((error) =>
+            console.error("Failed to save server audio device:", error)
+        );
     }
 
     function handleVolumeChange(value: number) {
@@ -64,14 +74,8 @@ export default function AudioSettings() {
         );
     }
 
-    const otherDevices = devices.filter(
-        (device) => device.deviceId !== "default"
-    );
-
     return (
         <div className="space-y-[28px] font-['Inter']">
-            {/* AUDIO DEVICE */}
-
             <div>
                 <label
                     htmlFor="audio-output-device"
@@ -79,27 +83,30 @@ export default function AudioSettings() {
                 >
                     Heliväljund
                 </label>
-
                 <p className="m-0 mb-[10px] text-[13px] text-[#8792a5]">
                     Vali seade, mille kaudu koolikell ja muusika kõlavad.
                 </p>
-
                 <select
                     id="audio-output-device"
-                    value={selectedDevice}
-                    onChange={(event) => handleDeviceChange(event.target.value)}
-                    disabled={loading}
+                    value={serverDevice}
+                    onChange={(event) => handleServerDeviceChange(event.target.value)}
+                    disabled={loading || serverDevices.length === 0}
                     className="h-[44px] w-full rounded-[10px] border border-[#d9dee8] bg-white px-[14px] text-[14px] text-[#1f2937] outline-none transition focus:border-[#5798f5] focus:ring-2 focus:ring-[#5798f5]/20 disabled:cursor-not-allowed disabled:bg-[#f5f7fb] disabled:text-[#a3adbd]"
                 >
                     <option value="default">Süsteemi vaikeseade</option>
-
-                    {otherDevices.map((device) => (
-                        <option key={device.deviceId} value={device.deviceId}>
-                            {device.label}
-                        </option>
-                    ))}
+                    {serverDevices
+                        .filter((device) => device.deviceId !== "default")
+                        .map((device) => (
+                            <option key={device.deviceId} value={device.deviceId}>
+                                {device.label}
+                            </option>
+                        ))}
                 </select>
-
+                {serverDevices.length === 0 && (
+                    <p className="m-0 mt-[8px] text-[12px] text-[#8792a5]">
+                        Serveri heliväljundid pole veel saadaval.
+                    </p>
+                )}
                 {loading && (
                     <p className="m-0 mt-[8px] text-[12px] text-[#8792a5]">
                         Seadmete laadimine...

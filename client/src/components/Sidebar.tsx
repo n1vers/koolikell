@@ -118,9 +118,14 @@ export default function Sidebar({
                     </svg>
                 </div>
 
-                <span className="text-[20px] font-semibold leading-none text-[#1b212d]">
-                    koolikell
-                </span>
+                <div className="flex flex-col">
+                    <span className="text-[20px] font-semibold leading-none text-[#1b212d]">
+                        koolikell
+                    </span>
+                    <span className="mt-[4px] text-[10px] font-medium leading-none text-[#9aa4b4]">
+                        v1.1.9
+                    </span>
+                </div>
             </div>
 
             {/* NAVIGATION */}
