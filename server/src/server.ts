@@ -44,7 +44,8 @@ const HOST = process.env.HOST ?? "127.0.0.1";
 const FRONTEND_PORT = 5173;
 const FRONTEND_HOST = process.env.FRONTEND_HOST;
 const clientDistPath = process.env.CLIENT_DIST_PATH;
-const serverLogPath = path.join(process.cwd(), "koolikell-server.log");
+const dataRoot = process.env.KOOLIKELL_DATA_DIR ?? process.cwd();
+const serverLogPath = path.join(dataRoot, "koolikell-server.log");
 const recentLogEntries = new Map<string, number>();
 const DUPLICATE_LOG_WINDOW_MS = 30_000;
 interface ServerAudioDevice {
@@ -109,7 +110,7 @@ function hashPin(pin: string): string {
 }
 
 function getPin(key: string, fallback: string): string {
-    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const database = new Database(path.join(dataRoot, "schoolbell.db"));
     const row = database
         .prepare('SELECT "value" FROM "AppSetting" WHERE "key" = ?')
         .get(key) as { value?: string } | undefined;
@@ -118,7 +119,7 @@ function getPin(key: string, fallback: string): string {
 }
 
 function setPin(key: string, pin: string): void {
-    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const database = new Database(path.join(dataRoot, "schoolbell.db"));
     database
         .prepare(
             'INSERT INTO "AppSetting" ("key", "value") VALUES (?, ?) ' +
@@ -214,7 +215,7 @@ let playNowState: PlayNowState = {
 
 function initializeDatabase() {
     const database = new Database(
-        path.join(process.cwd(), "schoolbell.db")
+        path.join(dataRoot, "schoolbell.db")
     );
 
     database.exec(`
@@ -334,7 +335,7 @@ function initializeDatabase() {
 initializeDatabase();
 
 function getAutomaticEnabled(): boolean {
-    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const database = new Database(path.join(dataRoot, "schoolbell.db"));
     const row = database
         .prepare('SELECT "value" FROM "AppSetting" WHERE "key" = ?')
         .get("automaticEnabled") as { value?: string } | undefined;
@@ -343,7 +344,7 @@ function getAutomaticEnabled(): boolean {
 }
 
 function setAutomaticEnabled(enabled: boolean): void {
-    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const database = new Database(path.join(dataRoot, "schoolbell.db"));
     database
         .prepare(
             'INSERT INTO "AppSetting" ("key", "value") VALUES (?, ?) ' +
@@ -385,7 +386,7 @@ app.use((req, res, next) => {
 });
 
 app.get("/api/settings/pins", (_req, res) => {
-    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const database = new Database(path.join(dataRoot, "schoolbell.db"));
     const rows = database
         .prepare('SELECT "key" FROM "AppSetting" WHERE "key" IN (?, ?)')
         .all("masterPin", "playNowPin") as Array<{ key: string }>;
@@ -548,7 +549,7 @@ app.put("/api/settings/pins", (req, res) => {
 });
 
 app.delete("/api/settings/pins", (_req, res) => {
-    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const database = new Database(path.join(dataRoot, "schoolbell.db"));
     database
         .prepare('DELETE FROM "AppSetting" WHERE "key" IN (?, ?)')
         .run("masterPin", "playNowPin");
@@ -566,7 +567,7 @@ app.use(
     "/sounds",
     express.static(
         path.join(
-            process.cwd(),
+            dataRoot,
             "sounds"
         )
     )
@@ -575,7 +576,7 @@ app.use(
 app.use(
     "/playnow",
     express.static(
-        path.join(process.cwd(), "playnow")
+        path.join(dataRoot, "playnow")
     )
 );
 
@@ -602,7 +603,7 @@ app.get("/api/settings/automatic", (_req, res) => {
 });
 
 app.get("/api/settings/ntp", (_req, res) => {
-    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const database = new Database(path.join(dataRoot, "schoolbell.db"));
     const row = database
         .prepare('SELECT "value" FROM "AppSetting" WHERE "key" = ?')
         .get("ntpServer") as { value?: string } | undefined;
@@ -615,7 +616,7 @@ app.put("/api/settings/ntp", (req, res) => {
     if (!/^[a-zA-Z0-9.-]+$/.test(server) || server.length > 253) {
         return res.status(400).json({ error: "Invalid NTP server" });
     }
-    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const database = new Database(path.join(dataRoot, "schoolbell.db"));
     database
         .prepare(
             'INSERT INTO "AppSetting" ("key", "value") VALUES (?, ?) ON CONFLICT("key") DO UPDATE SET "value" = excluded."value"'
@@ -636,7 +637,7 @@ app.put("/api/settings/automatic", (req, res) => {
 });
 
 function getSyncedSettings() {
-    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const database = new Database(path.join(dataRoot, "schoolbell.db"));
     const rows = database
         .prepare('SELECT "key", "value" FROM "AppSetting" WHERE "key" IN (?, ?, ?)')
         .all("preBellMinutes", "volume", "windowsSettings") as Array<{ key: string; value: string }>;
@@ -681,7 +682,7 @@ app.put("/api/settings/synced", (req, res) => {
     ) {
         return res.status(400).json({ error: "Invalid synced settings" });
     }
-    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const database = new Database(path.join(dataRoot, "schoolbell.db"));
     const save = database.prepare(
         'INSERT INTO "AppSetting" ("key", "value") VALUES (?, ?) ON CONFLICT("key") DO UPDATE SET "value" = excluded."value"'
     );
@@ -698,7 +699,7 @@ app.put("/api/settings/synced", (req, res) => {
 });
 
 app.get("/api/settings/pre-bell-minutes", (_req, res) => {
-    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const database = new Database(path.join(dataRoot, "schoolbell.db"));
     const row = database
         .prepare('SELECT "value" FROM "AppSetting" WHERE "key" = ?')
         .get("preBellMinutes") as { value?: string } | undefined;
@@ -712,7 +713,7 @@ app.put("/api/settings/pre-bell-minutes", (req, res) => {
     if (!Number.isFinite(minutes) || minutes < 0 || minutes > 60) {
         return res.status(400).json({ error: "minutes must be between 0 and 60" });
     }
-    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const database = new Database(path.join(dataRoot, "schoolbell.db"));
     database.prepare(
         'INSERT INTO "AppSetting" ("key", "value") VALUES (?, ?) ON CONFLICT("key") DO UPDATE SET "value" = excluded."value"'
     ).run("preBellMinutes", String(Math.round(minutes)));
@@ -721,7 +722,7 @@ app.put("/api/settings/pre-bell-minutes", (req, res) => {
 });
 
 app.get("/api/settings/profile-assignments", (_req, res) => {
-    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const database = new Database(path.join(dataRoot, "schoolbell.db"));
     const rows = database
         .prepare('SELECT "key", "value" FROM "AppSetting" WHERE "key" IN (?, ?)')
         .all("profileByDay", "profileByDate") as Array<{ key: string; value: string }>;
@@ -777,7 +778,7 @@ app.put("/api/settings/profile-assignments", (req, res) => {
         return res.status(400).json({ error: "Invalid profile assignments" });
     }
 
-    const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+    const database = new Database(path.join(dataRoot, "schoolbell.db"));
     const save = database.prepare(
         'INSERT INTO "AppSetting" ("key", "value") VALUES (?, ?) ' +
         'ON CONFLICT("key") DO UPDATE SET "value" = excluded."value"'
@@ -797,7 +798,7 @@ app.put("/api/settings/profile-assignments", (req, res) => {
 
 app.get("/api/playnow", async (_req, res) => {
     try {
-        const directory = path.join(process.cwd(), "playnow");
+        const directory = path.join(dataRoot, "playnow");
         const files = await fs.readdir(directory, {
             withFileTypes: true,
         });
@@ -935,7 +936,7 @@ app.delete("/api/playnow/:fileName", async (req, res) => {
     try {
         const fileName = path.basename(req.params.fileName);
         await fs.unlink(
-            path.join(process.cwd(), "playnow", fileName)
+            path.join(dataRoot, "playnow", fileName)
         );
         res.json({ message: "Track deleted" });
     } catch (error) {
@@ -1088,7 +1089,7 @@ app.delete(
                 id
             );
 
-            const database = new Database(path.join(process.cwd(), "schoolbell.db"));
+            const database = new Database(path.join(dataRoot, "schoolbell.db"));
             const assignmentRows = database
                 .prepare('SELECT "key", "value" FROM "AppSetting" WHERE "key" IN (?, ?)')
                 .all("profileByDay", "profileByDate") as Array<{ key: string; value: string }>;

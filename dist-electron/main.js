@@ -174,6 +174,14 @@ function startServer() {
         console.log("Starting koolikell server...");
         console.log("Server:", serverPath);
         prepareDataDirectory();
+        writeMainLog("info", "Starting backend", {
+            executable: process.execPath,
+            serverPath,
+            clientDistPath,
+            dataRoot,
+            cwd: dataRoot,
+            packaged: electron_1.app.isPackaged,
+        });
         serverProcess = (0, child_process_1.spawn)(process.execPath, [
             serverPath,
         ], {
@@ -183,6 +191,7 @@ function startServer() {
                 ELECTRON_RUN_AS_NODE: "1",
                 DATABASE_URL: "file:./schoolbell.db",
                 HOST: "127.0.0.1",
+                KOOLIKELL_DATA_DIR: dataRoot,
                 FRONTEND_HOST: electron_1.app.isPackaged
                     ? "0.0.0.0"
                     : undefined,
@@ -195,9 +204,11 @@ function startServer() {
             ],
         });
         serverProcess.stdout?.on("data", (data) => {
+            writeMainLog("info", "Server stdout", data.toString().trim());
             console.log(`[SERVER] ${data.toString().trim()}`);
         });
         serverProcess.stderr?.on("data", (data) => {
+            writeMainLog("error", "Server stderr", data.toString().trim());
             console.error(`[SERVER] ${data.toString().trim()}`);
         });
         serverProcess.on("error", (error) => {

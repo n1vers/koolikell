@@ -316,6 +316,14 @@ function startServer(): Promise<void> {
             );
 
             prepareDataDirectory();
+            writeMainLog("info", "Starting backend", {
+                executable: process.execPath,
+                serverPath,
+                clientDistPath,
+                dataRoot,
+                cwd: dataRoot,
+                packaged: app.isPackaged,
+            });
 
             serverProcess = spawn(
                 process.execPath,
@@ -330,6 +338,7 @@ function startServer(): Promise<void> {
                         ELECTRON_RUN_AS_NODE: "1",
                         DATABASE_URL: "file:./schoolbell.db",
                         HOST: "127.0.0.1",
+                        KOOLIKELL_DATA_DIR: dataRoot,
                         FRONTEND_HOST: app.isPackaged
                             ? "0.0.0.0"
                             : undefined,
@@ -348,6 +357,7 @@ function startServer(): Promise<void> {
             serverProcess.stdout?.on(
                 "data",
                 (data) => {
+                    writeMainLog("info", "Server stdout", data.toString().trim());
 
                     console.log(
                         `[SERVER] ${data.toString().trim()}`
@@ -360,6 +370,7 @@ function startServer(): Promise<void> {
             serverProcess.stderr?.on(
                 "data",
                 (data) => {
+                    writeMainLog("error", "Server stderr", data.toString().trim());
 
                     console.error(
                         `[SERVER] ${data.toString().trim()}`

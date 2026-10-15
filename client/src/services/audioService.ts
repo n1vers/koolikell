@@ -1,3 +1,5 @@
+import { API_URL } from "../api/apiBase";
+
 export interface AudioOutputDevice {
     deviceId: string;
     label: string;
@@ -57,7 +59,7 @@ export function saveAudioDevice(
 }
 
 export async function getServerAudioDevices(): Promise<ServerAudioDevices> {
-    const response = await fetch("/api/audio/server-devices");
+    const response = await fetch(`${API_URL}/api/audio/server-devices`);
     if (!response.ok) {
         throw new Error("Serveri heliväljundite lugemine ebaõnnestus");
     }
@@ -67,7 +69,7 @@ export async function getServerAudioDevices(): Promise<ServerAudioDevices> {
 export async function publishServerAudioDevices(
     devices: AudioOutputDevice[]
 ): Promise<ServerAudioDevices> {
-    const response = await fetch("/api/audio/server-devices", {
+    const response = await fetch(`${API_URL}/api/audio/server-devices`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ devices }),
@@ -79,7 +81,7 @@ export async function publishServerAudioDevices(
 }
 
 export async function saveServerAudioDevice(deviceId: string): Promise<void> {
-    const response = await fetch("/api/audio/server-device", {
+    const response = await fetch(`${API_URL}/api/audio/server-device`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deviceId }),

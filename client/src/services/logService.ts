@@ -1,3 +1,5 @@
+import { API_URL } from "../api/apiBase";
+
 export type AppLogLevel = "info" | "warn" | "error";
 export type AppLogSource = "backend" | "frontend";
 export type AppLogCategory =
@@ -68,7 +70,7 @@ export function getLogCategory(message: string): AppLogCategory {
 }
 
 function sendLogToServer(entry: AppLogEntry) {
-    return fetch("/api/logs", {
+    return fetch(`${API_URL}/api/logs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -93,7 +95,7 @@ export function getAppLogs(): AppLogEntry[] {
 }
 
 export async function getServerLogs(): Promise<AppLogEntry[]> {
-    const response = await fetch("/api/logs");
+    const response = await fetch(`${API_URL}/api/logs`);
     if (!response.ok) {
         throw new Error(`Serveri logide lugemine ebaõnnestus (HTTP ${response.status})`);
     }
@@ -101,7 +103,7 @@ export async function getServerLogs(): Promise<AppLogEntry[]> {
 }
 
 export async function clearServerLogs(): Promise<void> {
-    const response = await fetch("/api/logs", { method: "DELETE" });
+    const response = await fetch(`${API_URL}/api/logs`, { method: "DELETE" });
     if (!response.ok) {
         throw new Error(`Serveri logide kustutamine ebaõnnestus (HTTP ${response.status})`);
     }

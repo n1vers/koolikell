@@ -196,6 +196,7 @@ export default function App() {
             void getAudioOutputDevices()
                 .then(publishServerAudioDevices)
                 .catch((error: unknown) => {
+                    writeAppLog("error", "Server audio devices initialization failed", error);
                     console.error("Failed to publish server audio devices:", error);
                 });
         }

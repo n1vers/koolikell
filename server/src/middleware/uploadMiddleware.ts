@@ -8,7 +8,7 @@ import fs from "fs";
 // ============================================
 
 const soundsDirectory = path.join(
-    process.cwd(),
+    process.env.KOOLIKELL_DATA_DIR ?? process.cwd(),
     "sounds"
 );
 

@@ -3,7 +3,7 @@ import path from "path";
 import fs from "fs";
 
 const playNowDirectory = path.join(
-    process.cwd(),
+    process.env.KOOLIKELL_DATA_DIR ?? process.cwd(),
     "playnow"
 );
 
