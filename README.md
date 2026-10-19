@@ -42,6 +42,13 @@ SHA-256 актуального установщика:
 - запускаться вместе с Windows, в том числе в свёрнутом виде;
 - проверять точность времени через NTP-сервер.
 
+## Поддержка и обратная связь
+
+- [Сообщить об ошибке](https://github.com/n1vers/koolikell/issues/new?template=bug_report.md)
+- [Предложить улучшение](https://github.com/n1vers/koolikell/issues/new?template=feature_request.md)
+- [Задать вопрос или обсудить идею](https://github.com/n1vers/koolikell/discussions)
+- [Посмотреть открытые задачи](https://github.com/n1vers/koolikell/issues)
+
 ## Преимущества
 
 - **Просто настроить.** Основные параметры собраны в понятных разделах.

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Задать вопрос или обсудить идею
+    url: https://github.com/n1vers/koolikell/discussions
+    about: Для вопросов, предложений и общего обсуждения используйте GitHub Discussions.
