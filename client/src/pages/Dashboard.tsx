@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { getNtpServer } from "../api/api";
-import { getServerLogs, type AppLogEntry } from "../services/logService";
+import { getNtpServer, getServerTime, getServerUptime } from "../api/api";
+import {
+    getServerLogs,
+    type AppLogEntry,
+} from "../services/logService";
 import type { Schedule } from "../types";
 
 interface DashboardProps {
@@ -62,6 +65,18 @@ function getTimeUntilPreBell(
     return `${String(Math.floor(totalSeconds / 60)).padStart(2, "0")}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
+function formatUptime(uptimeMs: number): string {
+    const totalSeconds = Math.max(0, Math.floor(uptimeMs / 1000));
+    const days = Math.floor(totalSeconds / 86_400);
+    const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+    const minutes = Math.floor((totalSeconds % 3_600) / 60);
+    const seconds = totalSeconds % 60;
+
+    return `${days} päeva ${String(hours).padStart(2, "0")} tundi ${String(
+        minutes
+    ).padStart(2, "0")} minutit ${String(seconds).padStart(2, "0")} sekundit`;
+}
+
 function getNextSchedule(
     schedules: Schedule[],
     now: Date,
@@ -107,6 +122,21 @@ function getNextSchedule(
 
             return hours * 3600 + minutes * 60 >= currentSeconds;
         }) ?? null
+    );
+}
+
+function getNextLessonSchedule(schedules: Schedule[], now: Date) {
+    const currentSeconds =
+        now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+
+    return (
+        schedules
+            .filter((schedule) => schedule.type === "LESSON_START")
+            .sort((a, b) => a.time.localeCompare(b.time))
+            .find((schedule) => {
+                const [hours, minutes] = schedule.time.split(":").map(Number);
+                return hours * 3600 + minutes * 60 >= currentSeconds;
+            }) ?? null
     );
 }
 
@@ -214,6 +244,7 @@ export default function Dashboard({
 
     const [ntpOffsetMs, setNtpOffsetMs] = useState<number | null>(null);
     const [ntpServer, setNtpServer] = useState("ntp1.eenet.ee");
+    const [appUptimeMs, setAppUptimeMs] = useState<number | null>(null);
 
     async function checkTime() {
         const server = await getNtpServer();
@@ -258,7 +289,7 @@ export default function Dashboard({
                 setImportantLogs(
                     logs.filter(
                         (log) =>
-                            log.level !== "info" &&
+                            log.level === "error" &&
                             !seenDashboardLogIds.current.has(getDashboardLogKey(log)) &&
                             new Date(log.timestamp).getTime() >
                                 seenDashboardLogsAt.current
@@ -290,6 +321,37 @@ export default function Dashboard({
     }, []);
 
     useEffect(() => {
+        if (window.electronAPI) {
+            return;
+        }
+
+        let disposed = false;
+        const refreshServerTime = async () => {
+            try {
+                const requestStartedAt = Date.now();
+                const serverTimeMs = await getServerTime();
+                const requestFinishedAt = Date.now();
+                const estimatedServerTimeAtFinish =
+                    serverTimeMs + (requestFinishedAt - requestStartedAt) / 2;
+                if (!disposed) {
+                    setClockOffsetMs(estimatedServerTimeAtFinish - requestFinishedAt);
+                }
+            } catch {
+                if (!disposed) {
+                    setClockOffsetMs(0);
+                }
+            }
+        };
+
+        void refreshServerTime();
+        const timer = window.setInterval(() => void refreshServerTime(), 5000);
+        return () => {
+            disposed = true;
+            window.clearInterval(timer);
+        };
+    }, []);
+
+    useEffect(() => {
         const timer = window.setInterval(() => {
             setNow(new Date(Date.now() + clockOffsetMs));
         }, 1000);
@@ -297,11 +359,35 @@ export default function Dashboard({
         return () => window.clearInterval(timer);
     }, [clockOffsetMs]);
 
+    useEffect(() => {
+        let disposed = false;
+        const refreshUptime = async () => {
+            try {
+                const uptime = await getServerUptime();
+                if (!disposed) {
+                    setAppUptimeMs(uptime);
+                }
+            } catch {
+                if (!disposed) {
+                    setAppUptimeMs(null);
+                }
+            }
+        };
+
+        void refreshUptime();
+        const timer = window.setInterval(() => void refreshUptime(), 1000);
+        return () => {
+            disposed = true;
+            window.clearInterval(timer);
+        };
+    }, []);
+
     const upcomingSchedule = getNextSchedule(
         schedules,
         now,
         lessonDurationMinutes
     );
+    const upcomingLesson = getNextLessonSchedule(schedules, now);
 
     const dateLabel = new Intl.DateTimeFormat("et-EE", {
         weekday: "long",
@@ -337,8 +423,10 @@ export default function Dashboard({
 
                     <p className="m-0 mt-[6px] text-[14px] text-[#647085]">
                         {dateLabel} ·{" "}
-                        <span className="tabular-nums">{timeLabel}</span> · NTP
+                        <span className="tabular-nums">{timeLabel}</span> · NTP:
                         {ntpServer}
+                        {" · Tööaeg: "}
+                        {appUptimeMs === null ? "—" : formatUptime(appUptimeMs)}
                         {ntpDifference}
                         {ntpOffsetMs !== null && Math.abs(ntpOffsetMs) >= 1000 && (
                             <button
@@ -488,6 +576,7 @@ export default function Dashboard({
                                     )}
                                 </p>
                             </div>
+
                         </div>
                     </div>
 
@@ -521,7 +610,7 @@ export default function Dashboard({
                         ) : (
                             schedules.map((schedule, index) => {
                                 const isNext =
-                                    upcomingSchedule?.id === schedule.id;
+                                    upcomingLesson?.id === schedule.id;
 
                                 return (
                                     <div

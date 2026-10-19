@@ -449,12 +449,16 @@ electron_1.ipcMain.handle("sounds-folder:open", async () => {
     }
     return soundsPath;
 });
-electron_1.ipcMain.handle("time:ntp", (_event, server) => queryNtpServer(typeof server === "string" && /^[a-zA-Z0-9.-]+$/.test(server)
-    ? server
-    : "ntp1.eenet.ee"));
+electron_1.ipcMain.handle("time:ntp", (_event, server) => {
+    const normalizedServer = typeof server === "string" ? server.trim() : "";
+    return queryNtpServer(normalizedServer && /^[a-zA-Z0-9.-]+$/.test(normalizedServer)
+        ? normalizedServer
+        : "ntp1.eenet.ee");
+});
 electron_1.ipcMain.handle("time:sync-system", async (_event, server) => {
-    const ntpServer = typeof server === "string" && /^[a-zA-Z0-9.-]+$/.test(server)
-        ? server
+    const normalizedServer = typeof server === "string" ? server.trim() : "";
+    const ntpServer = normalizedServer && /^[a-zA-Z0-9.-]+$/.test(normalizedServer)
+        ? normalizedServer
         : "ntp1.eenet.ee";
     const result = await queryNtpServer(ntpServer);
     const script = `$date = [DateTimeOffset]::FromUnixTimeMilliseconds(${Math.round(result.targetTimeMs)}).LocalDateTime; Set-Date -Date $date`;

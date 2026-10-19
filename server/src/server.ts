@@ -48,6 +48,7 @@ const dataRoot = process.env.KOOLIKELL_DATA_DIR ?? process.cwd();
 const serverLogPath = path.join(dataRoot, "koolikell-server.log");
 const recentLogEntries = new Map<string, number>();
 const DUPLICATE_LOG_WINDOW_MS = 30_000;
+let serverDebugLogging = false;
 interface ServerAudioDevice {
     deviceId: string;
     label: string;
@@ -368,7 +369,7 @@ app.use(
 app.use((req, res, next) => {
     const startedAt = Date.now();
     res.on("finish", () => {
-        if (req.path === "/api/logs") {
+        if (req.path === "/api/logs" || (!serverDebugLogging && res.statusCode < 400)) {
             return;
         }
         const level = res.statusCode >= 500
@@ -404,6 +405,23 @@ app.get("/api/logs", async (_req, res) => {
                 return "";
             }
             throw error;
+        });
+
+        app.get("/api/settings/logging-debug", (_req, res) => {
+            res.json({ enabled: serverDebugLogging });
+        });
+
+        app.put("/api/settings/logging-debug", (req, res) => {
+            if (typeof req.body?.enabled !== "boolean") {
+                return res.status(400).json({ error: "enabled must be boolean" });
+            }
+
+            serverDebugLogging = req.body.enabled;
+            void writeServerLog(
+                "info",
+                `Server debug logging ${serverDebugLogging ? "enabled" : "disabled"}`
+            );
+            res.json({ enabled: serverDebugLogging });
         });
         const logs = content
             .split(/\r?\n/)
@@ -596,6 +614,17 @@ app.get(
 
 app.get("/api/connection-info", (_req, res) => {
     res.json(getServerConnectionInfo());
+});
+
+app.get("/api/server-uptime", (_req, res) => {
+    res.json({ uptimeMs: Math.round(process.uptime() * 1000) });
+});
+
+app.get("/api/server-time", (_req, res) => {
+    res.json({
+        timeMs: Date.now(),
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
 });
 
 app.get("/api/settings/automatic", (_req, res) => {

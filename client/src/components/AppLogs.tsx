@@ -1,14 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+    getServerDebugLogging,
+    getServerTimeZone,
+    setServerDebugLogging,
+} from "../api/api";
+import {
     clearServerLogs,
     getServerLogs,
     getLogCategory,
+    SHOW_SERVER_LOGS_KEY,
     type AppLogCategory,
     type AppLogEntry,
 } from "../services/logService";
 
-function formatTimestamp(value: string) {
-    return new Date(value).toLocaleString("et-EE");
+function formatTimestamp(value: string, timeZone: string) {
+    try {
+        return new Date(value).toLocaleString("et-EE", { timeZone });
+    } catch {
+        return new Date(value).toLocaleString("et-EE", {
+            timeZone: "Europe/Tallinn",
+        });
+    }
 }
 
 const LEVEL_STYLES: Record<
@@ -51,17 +63,41 @@ export default function AppLogs() {
     const [categoryFilter, setCategoryFilter] = useState<
         "all" | AppLogCategory
     >("all");
+    const [showServerLogs, setShowServerLogs] = useState(
+        () => localStorage.getItem(SHOW_SERVER_LOGS_KEY) === "true"
+    );
+    const [serverTimeZone, setServerTimeZone] = useState("Europe/Tallinn");
 
     useEffect(() => {
         void handleRefresh();
+        void Promise.all([
+            getServerTimeZone(),
+            getServerDebugLogging(),
+        ])
+            .then(([timeZone, debugEnabled]) => {
+                setServerTimeZone(timeZone);
+                setShowServerLogs(debugEnabled);
+                localStorage.setItem(SHOW_SERVER_LOGS_KEY, String(debugEnabled));
+            })
+            .catch(() => {
+                setServerTimeZone("Europe/Tallinn");
+            });
     }, []);
 
+    const availableLogs = useMemo(
+        () => logs.filter((log) =>
+            showServerLogs ||
+                (log.source ?? "backend") === "frontend" ||
+                ((log.source ?? "backend") === "backend" && log.level === "error")
+        ),
+        [logs, showServerLogs]
+    );
     const counts = useMemo(() => ({
-        info: logs.filter((log) => log.level === "info").length,
-        warn: logs.filter((log) => log.level === "warn").length,
-        error: logs.filter((log) => log.level === "error").length,
-    }), [logs]);
-    const visibleLogs = logs.filter((log) =>
+        info: availableLogs.filter((log) => log.level === "info").length,
+        warn: availableLogs.filter((log) => log.level === "warn").length,
+        error: availableLogs.filter((log) => log.level === "error").length,
+    }), [availableLogs]);
+    const visibleLogs = availableLogs.filter((log) =>
         (filter === "all" || log.level === filter) &&
         (sourceFilter === "all" || (log.source ?? "backend") === sourceFilter) &&
         (categoryFilter === "all" ||
@@ -71,7 +107,7 @@ export default function AppLogs() {
         (category) => [
             category,
             CATEGORY_LABELS[category],
-            logs.filter(
+            availableLogs.filter(
                 (log) =>
                     (log.category ?? getLogCategory(log.message)) === category
             ).length,
@@ -110,9 +146,9 @@ export default function AppLogs() {
                     <h2 className="m-0 flex items-center gap-[10px] text-[17px] font-semibold leading-[28px] text-[#1b212d]">
                         Logid
 
-                        {logs.length > 0 && (
+                        {availableLogs.length > 0 && (
                             <span className="rounded-full bg-[#f1f4f8] px-[8px] py-[1px] text-[12px] font-medium text-[#7d899d]">
-                                {logs.length}
+                                {availableLogs.length}
                             </span>
                         )}
                     </h2>
@@ -144,7 +180,7 @@ export default function AppLogs() {
 
             <div className="mt-[16px] flex flex-wrap gap-[8px]">
                 {([
-                    ["all", "Kõik", logs.length],
+                    ["all", "Kõik", availableLogs.length],
                     ["error", "ERROR", counts.error],
                     ["warn", "WARN", counts.warn],
                     ["info", "INFO", counts.info],
@@ -184,6 +220,31 @@ export default function AppLogs() {
                     </button>
                 ))}
             </div>
+
+            <label className="mt-[14px] flex cursor-pointer items-center gap-[8px] text-[13px] text-[#647085]">
+                <input
+                    type="checkbox"
+                    checked={showServerLogs}
+                    onChange={(event) => {
+                        const checked = event.target.checked;
+                        void setServerDebugLogging(checked)
+                            .then((enabled) => {
+                                setShowServerLogs(enabled);
+                                localStorage.setItem(SHOW_SERVER_LOGS_KEY, String(enabled));
+                                window.setTimeout(() => void handleRefresh(), 100);
+                            })
+                            .catch((toggleError: unknown) => {
+                                setError(
+                                    toggleError instanceof Error
+                                        ? toggleError.message
+                                        : "Serveri debug-logimise seadistamine ebaõnnestus"
+                                );
+                            });
+                    }}
+                    className="h-[16px] w-[16px] accent-[#5798f5]"
+                />
+                <span>Näita serveri logisid (debug)</span>
+            </label>
 
             <div className="mt-[10px] flex flex-wrap gap-[8px]">
                 {([
@@ -238,7 +299,7 @@ export default function AppLogs() {
                                     </span>
 
                                     <span className="tabular-nums">
-                                        {formatTimestamp(log.timestamp)}
+                                        {formatTimestamp(log.timestamp, serverTimeZone)}
                                     </span>
                                 </div>
 

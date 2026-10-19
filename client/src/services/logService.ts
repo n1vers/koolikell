@@ -26,7 +26,12 @@ const DASHBOARD_LOG_IDS_SEEN_KEY = "schoolbell-dashboard-log-ids-seen";
 const LOGS_MIGRATED_KEY = "schoolbell-app-logs-migrated";
 const MAX_LOGS = 250;
 const DUPLICATE_WINDOW_MS = 30_000;
+export const SHOW_SERVER_LOGS_KEY = "schoolbell-show-server-logs";
 let runtimeLoggingInstalled = false;
+
+export function isServerLogDebugEnabled() {
+    return localStorage.getItem(SHOW_SERVER_LOGS_KEY) === "true";
+}
 
 export function getLogCategory(message: string): AppLogCategory {
     const normalized = message.toLowerCase();

@@ -123,7 +123,7 @@ export default function Sidebar({
                         koolikell
                     </span>
                     <span className="mt-[4px] text-[10px] font-medium leading-none text-[#9aa4b4]">
-                        v1.1.9
+                        v1.2
                     </span>
                 </div>
             </div>

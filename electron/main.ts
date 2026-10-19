@@ -845,19 +845,23 @@ ipcMain.handle(
 
 ipcMain.handle(
     "time:ntp",
-    (_event, server?: string) => queryNtpServer(
-        typeof server === "string" && /^[a-zA-Z0-9.-]+$/.test(server)
-            ? server
-            : "ntp1.eenet.ee"
-    )
+    (_event, server?: string) => {
+        const normalizedServer = typeof server === "string" ? server.trim() : "";
+        return queryNtpServer(
+            normalizedServer && /^[a-zA-Z0-9.-]+$/.test(normalizedServer)
+                ? normalizedServer
+                : "ntp1.eenet.ee"
+        );
+    }
 );
 
 ipcMain.handle(
     "time:sync-system",
     async (_event, server?: string) => {
+        const normalizedServer = typeof server === "string" ? server.trim() : "";
         const ntpServer =
-            typeof server === "string" && /^[a-zA-Z0-9.-]+$/.test(server)
-                ? server
+            normalizedServer && /^[a-zA-Z0-9.-]+$/.test(normalizedServer)
+                ? normalizedServer
                 : "ntp1.eenet.ee";
         const result = await queryNtpServer(ntpServer);
         const script = `$date = [DateTimeOffset]::FromUnixTimeMilliseconds(${Math.round(result.targetTimeMs)}).LocalDateTime; Set-Date -Date $date`;

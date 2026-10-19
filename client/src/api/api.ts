@@ -31,6 +31,55 @@ export async function getAutomaticEnabled(): Promise<boolean> {
     return data.enabled;
 }
 
+export async function getServerUptime(): Promise<number> {
+    const response = await fetch(`${API_URL}/api/server-uptime`);
+    if (!response.ok) {
+        throw new Error("Failed to load server uptime");
+    }
+    const data = (await response.json()) as { uptimeMs: number };
+    return data.uptimeMs;
+}
+
+export async function getServerDebugLogging(): Promise<boolean> {
+    const response = await fetch(`${API_URL}/api/settings/logging-debug`);
+    if (!response.ok) {
+        throw new Error("Failed to load server debug logging setting");
+    }
+    const data = (await response.json()) as { enabled: boolean };
+    return data.enabled;
+}
+
+export async function setServerDebugLogging(enabled: boolean): Promise<boolean> {
+    const response = await fetch(`${API_URL}/api/settings/logging-debug`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+    });
+    if (!response.ok) {
+        throw new Error("Failed to update server debug logging setting");
+    }
+    const data = (await response.json()) as { enabled: boolean };
+    return data.enabled;
+}
+
+export async function getServerTime(): Promise<number> {
+    const response = await fetch(`${API_URL}/api/server-time`);
+    if (!response.ok) {
+        throw new Error("Failed to load server time");
+    }
+    const data = (await response.json()) as { timeMs: number };
+    return data.timeMs;
+}
+
+export async function getServerTimeZone(): Promise<string> {
+    const response = await fetch(`${API_URL}/api/server-time`);
+    if (!response.ok) {
+        throw new Error("Failed to load server time zone");
+    }
+    const data = (await response.json()) as { timeZone?: string };
+    return data.timeZone ?? "Europe/Tallinn";
+}
+
 export async function getNtpServer(): Promise<string> {
     const response = await fetch(`${API_URL}/api/settings/ntp`);
     if (!response.ok) {
