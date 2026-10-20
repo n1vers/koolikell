@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { getNtpServer, getServerTime, getServerUptime } from "../api/api";
+import {
+    getNtpServer,
+    getServerTime,
+    getServerTimeZone,
+    getServerUptime,
+} from "../api/api";
 import {
     getServerLogs,
     type AppLogEntry,
@@ -245,6 +250,7 @@ export default function Dashboard({
     const [ntpOffsetMs, setNtpOffsetMs] = useState<number | null>(null);
     const [ntpServer, setNtpServer] = useState("ntp1.eenet.ee");
     const [appUptimeMs, setAppUptimeMs] = useState<number | null>(null);
+    const [serverTimeZone, setServerTimeZone] = useState("Europe/Tallinn");
 
     async function checkTime() {
         const server = await getNtpServer();
@@ -254,7 +260,6 @@ export default function Dashboard({
         }
         const result = await window.electronAPI.getNtpTime(server);
         setNtpOffsetMs(result.offsetMs);
-        setClockOffsetMs(result.offsetMs);
     }
 
     async function synchronizeTime() {
@@ -352,6 +357,26 @@ export default function Dashboard({
     }, []);
 
     useEffect(() => {
+        let disposed = false;
+
+        void getServerTimeZone()
+            .then((timeZone) => {
+                if (!disposed) {
+                    setServerTimeZone(timeZone);
+                }
+            })
+            .catch(() => {
+                if (!disposed) {
+                    setServerTimeZone("Europe/Tallinn");
+                }
+            });
+
+        return () => {
+            disposed = true;
+        };
+    }, []);
+
+    useEffect(() => {
         const timer = window.setInterval(() => {
             setNow(new Date(Date.now() + clockOffsetMs));
         }, 1000);
@@ -394,12 +419,14 @@ export default function Dashboard({
         day: "numeric",
         month: "long",
         year: "numeric",
+        timeZone: serverTimeZone,
     }).format(now);
 
     const timeLabel = now.toLocaleTimeString("et-EE", {
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
+        timeZone: serverTimeZone,
     });
 
     const ntpDifference =
