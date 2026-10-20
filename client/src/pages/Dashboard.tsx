@@ -30,43 +30,73 @@ interface DashboardProps {
     onOpenLogs: () => void;
 }
 
-function getTimeUntilNextBell(schedule: Schedule | null, now: Date): string {
+function getZonedTimeParts(now: Date, timeZone: string) {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+    }).formatToParts(now);
+    const values = new Map(
+        parts
+            .filter((part) => part.type !== "literal")
+            .map((part) => [part.type, Number(part.value)])
+    );
+    return {
+        hours: values.get("hour") ?? 0,
+        minutes: values.get("minute") ?? 0,
+        seconds: values.get("second") ?? 0,
+    };
+}
+
+function getTimeUntilNextBell(
+    schedule: Schedule | null,
+    now: Date,
+    timeZone: string
+): string {
     if (!schedule) {
         return "—";
     }
 
     const [hours, minutes] = schedule.time.split(":").map(Number);
+    const current = getZonedTimeParts(now, timeZone);
+    const currentSeconds =
+        current.hours * 3600 + current.minutes * 60 + current.seconds;
+    const targetSeconds = hours * 3600 + minutes * 60;
+    const secondsUntil = targetSeconds - currentSeconds;
 
-    const next = new Date();
-
-    next.setHours(hours, minutes, 0, 0);
-
-    if (next.getTime() <= now.getTime()) {
+    if (secondsUntil <= 0) {
         return "00:00";
     }
 
-    const totalSeconds = Math.ceil((next.getTime() - now.getTime()) / 1000);
+    const totalSeconds = secondsUntil;
     return `${String(Math.floor(totalSeconds / 60)).padStart(2, "0")}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
 function getTimeUntilPreBell(
     schedule: Schedule | null,
     preBellMinutes: number,
-    now: Date
+    now: Date,
+    timeZone: string
 ): string {
     if (!schedule?.preBellEnabled || preBellMinutes <= 0) {
         return "--:--";
     }
 
     const [hours, minutes] = schedule.time.split(":").map(Number);
-    const preBell = new Date(now);
-    preBell.setHours(hours, minutes - preBellMinutes, 0, 0);
+    const current = getZonedTimeParts(now, timeZone);
+    const currentSeconds =
+        current.hours * 3600 + current.minutes * 60 + current.seconds;
+    const targetSeconds =
+        ((hours * 60 + minutes - preBellMinutes) * 60 + 86400) % 86400;
+    const secondsUntil = targetSeconds - currentSeconds;
 
-    if (preBell.getTime() <= now.getTime()) {
+    if (secondsUntil <= 0) {
         return "00:00";
     }
 
-    const totalSeconds = Math.ceil((preBell.getTime() - now.getTime()) / 1000);
+    const totalSeconds = secondsUntil;
     return `${String(Math.floor(totalSeconds / 60)).padStart(2, "0")}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
@@ -85,10 +115,12 @@ function formatUptime(uptimeMs: number): string {
 function getNextSchedule(
     schedules: Schedule[],
     now: Date,
-    lessonDurationMinutes: number
+    lessonDurationMinutes: number,
+    timeZone: string
 ) {
+    const current = getZonedTimeParts(now, timeZone);
     const currentSeconds =
-        now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+        current.hours * 3600 + current.minutes * 60 + current.seconds;
 
     const explicitEndTimes = new Set(
         schedules
@@ -130,9 +162,14 @@ function getNextSchedule(
     );
 }
 
-function getNextLessonSchedule(schedules: Schedule[], now: Date) {
+function getNextLessonSchedule(
+    schedules: Schedule[],
+    now: Date,
+    timeZone: string
+) {
+    const current = getZonedTimeParts(now, timeZone);
     const currentSeconds =
-        now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+        current.hours * 3600 + current.minutes * 60 + current.seconds;
 
     return (
         schedules
@@ -234,7 +271,6 @@ export default function Dashboard({
     onOpenLogs,
 }: DashboardProps) {
     const [now, setNow] = useState(() => new Date());
-    const [clockOffsetMs, setClockOffsetMs] = useState(0);
     const [syncingTime, setSyncingTime] = useState(false);
     const [syncError, setSyncError] = useState("");
     const [importantLogs, setImportantLogs] = useState<AppLogEntry[]>([]);
@@ -273,7 +309,6 @@ export default function Dashboard({
             }
             await window.electronAPI.syncSystemTime(server);
             setNtpOffsetMs(0);
-            setClockOffsetMs(0);
             setNow(new Date());
         } catch (error) {
             setSyncError(error instanceof Error ? error.message : "Aja sünkroonimine ebaõnnestus.");
@@ -327,11 +362,21 @@ export default function Dashboard({
 
     useEffect(() => {
         if (window.electronAPI) {
-            return;
+            const timer = window.setInterval(() => {
+                setNow(new Date());
+            }, 1000);
+
+            return () => window.clearInterval(timer);
         }
 
         let disposed = false;
+        let requestInProgress = false;
         const refreshServerTime = async () => {
+            if (requestInProgress) {
+                return;
+            }
+            requestInProgress = true;
+            requestInProgress = true;
             try {
                 const requestStartedAt = Date.now();
                 const serverTimeMs = await getServerTime();
@@ -339,17 +384,17 @@ export default function Dashboard({
                 const estimatedServerTimeAtFinish =
                     serverTimeMs + (requestFinishedAt - requestStartedAt) / 2;
                 if (!disposed) {
-                    setClockOffsetMs(estimatedServerTimeAtFinish - requestFinishedAt);
+                    setNow(new Date(estimatedServerTimeAtFinish));
                 }
             } catch {
-                if (!disposed) {
-                    setClockOffsetMs(0);
-                }
+                // Keep the last confirmed time until the server is reachable again.
+            } finally {
+                requestInProgress = false;
             }
         };
 
         void refreshServerTime();
-        const timer = window.setInterval(() => void refreshServerTime(), 5000);
+        const timer = window.setInterval(() => void refreshServerTime(), 1000);
         return () => {
             disposed = true;
             window.clearInterval(timer);
@@ -377,14 +422,6 @@ export default function Dashboard({
     }, []);
 
     useEffect(() => {
-        const timer = window.setInterval(() => {
-            setNow(new Date(Date.now() + clockOffsetMs));
-        }, 1000);
-
-        return () => window.clearInterval(timer);
-    }, [clockOffsetMs]);
-
-    useEffect(() => {
         let disposed = false;
         const refreshUptime = async () => {
             try {
@@ -410,9 +447,14 @@ export default function Dashboard({
     const upcomingSchedule = getNextSchedule(
         schedules,
         now,
-        lessonDurationMinutes
+        lessonDurationMinutes,
+        serverTimeZone
     );
-    const upcomingLesson = getNextLessonSchedule(schedules, now);
+    const upcomingLesson = getNextLessonSchedule(
+        schedules,
+        now,
+        serverTimeZone
+    );
 
     const dateLabel = new Intl.DateTimeFormat("et-EE", {
         weekday: "long",
@@ -585,7 +627,8 @@ export default function Dashboard({
                                 <p className="m-0 mt-[4px] text-[20px] font-medium leading-[40px] text-[#3f82df]">
                                     {getTimeUntilNextBell(
                                         upcomingSchedule,
-                                        now
+                                        now,
+                                        serverTimeZone
                                     )}
                                 </p>
                             </div>
@@ -599,7 +642,8 @@ export default function Dashboard({
                                     {getTimeUntilPreBell(
                                         upcomingSchedule,
                                         preBellMinutes,
-                                        now
+                                        now,
+                                        serverTimeZone
                                     )}
                                 </p>
                             </div>
